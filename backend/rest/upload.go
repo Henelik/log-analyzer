@@ -57,6 +57,9 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 			return c.Status(fiber.StatusBadRequest).JSON(uploadError{Error: "uploaded file is invalid"})
 		}
 
+		// reader reuses its record buffer, so clone the header row before reading any data rows
+		headers = slices.Clone(headers)
+
 		timeIdx := slices.Index(headers, "time")
 		if timeIdx == -1 {
 			log.Printf("failed to read uploaded file %q: %v", header.Filename, err)
@@ -86,7 +89,7 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 			}
 
 			// create the file record in the db
-			if err := database.Create(&file).Error; err != nil {
+			if err := tx.Create(&file).Error; err != nil {
 				return err
 			}
 
@@ -217,8 +220,12 @@ func parseCSVEvent(headers []string, record []string, lineNum int32, timeIdx int
 	if idx := slices.Index(headers, "riskscore"); idx >= 0 {
 		if !isNone(record[idx]) {
 			riskScore, err := strconv.Atoi(record[idx])
-			if err != nil || riskScore < 0 || riskScore > 100 {
-				return db.Event{}, errors.Wrapf(err, "invalid riskscore on line %d: %s", lineNum, record[timeIdx])
+			if err != nil {
+				return db.Event{}, errors.Wrapf(err, "invalid riskscore on line %d: %s", lineNum, record[idx])
+			}
+
+			if riskScore < 0 || riskScore > 100 {
+				return db.Event{}, errors.Errorf("invalid riskscore on line %d: %s", lineNum, record[idx])
 			}
 
 			event.RiskScore = &riskScore
