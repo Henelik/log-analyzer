@@ -2,38 +2,29 @@ package db
 
 import (
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Event struct {
-	ID uint `gorm:"primarykey"`
+	IngestID   uuid.UUID `gorm:"uuid;primaryKey"`
+	LineNumber int32     `gorm:"primaryKey;autoIncrement:false"`
 
-	RecordID         int
-	Time             time.Time
-	User             string
-	Department       string
-	Location         string
-	ClientIP         string
-	ServerIP         string
-	URL              string
-	URLCategory      string
-	URLSuperCategory string
-	Host             string
-	Method           string
-	Status           string
-	UserAgent        string
-	Action           string
-	RuleType         string
-	RuleLabel        string
-	AppName          string
-	AppClass         string
-	ThreatName       string
-	BytesIn          int
-	BytesOut         int
-	ProfileID        int
-	IngestID         int
-	RiskScore        uint32
-	Severity         string
+	Time         time.Time
+	User         string `gorn:"not null; default:''"`
+	ClientIP     string `gorn:"not null; default:''"`
+	ServerIP     string `gorn:"not null; default:''"`
+	URL          string `gorn:"not null; default:''"`
+	Method       string `gorn:"not null; default:''"`
+	ResponseCode *int
+	Action       string `gorn:"not null; default:''"`
+	AppName      string `gorn:"not null; default:''"`
+	BytesIn      *int
+	BytesOut     *int
+	RiskScore    *int
+	Severity     string `gorn:"not null; default:''"`
 
-	RawLog string
-	Error  string
+	RawLog string `gorm:"not null"`
+
+	File *File `gorm:"foreignKey:IngestID;references:ID;constraint:OnDelete:CASCADE;not null" json:"-"`
 }
