@@ -1,0 +1,70 @@
+version: '3'
+
+vars:
+  BINARY_NAME: log-analyzer
+  MAIN_PATH: ./backend/main.go
+
+tasks:
+  default:
+    desc: Display available tasks
+    cmds:
+      - task --list
+
+  build:
+    desc: Build the application
+    cmds:
+      - go build -o {{.BINARY_NAME}} {{.MAIN_PATH}}
+    sources:
+      - '**/*.go'
+      - 'go.mod'
+      - 'go.sum'
+    generates:
+      - '{{.BINARY_NAME}}'
+
+  run:
+    desc: Run the application
+    cmds:
+      - go run {{.MAIN_PATH}}
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -f {{.BINARY_NAME}}
+
+  test:
+    desc: Run tests
+    cmds:
+      - go test ./...
+
+  test:cover:
+    desc: Run tests with coverage
+    cmds:
+      - go test -v -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+
+  lint:
+    desc: Run linter
+    cmds:
+      - golangci-lint run ./...
+
+  fmt:
+    desc: Format code
+    cmds:
+      - go fmt ./...
+
+  deps:
+    desc: Download dependencies
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  deps:update:
+    desc: Update dependencies
+    cmds:
+      - go get -u ./...
+      - go mod tidy
+
+  install:tools:
+    desc: Install required development tools
+    cmds:
+      - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
