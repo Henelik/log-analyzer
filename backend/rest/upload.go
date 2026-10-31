@@ -106,7 +106,7 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 					return errors.Wrapf(readErr, "invalid CSV at line %d", lineNum)
 				}
 
-				event, err := parseCSVEvent(headers, record, lineNum, timeIdx)
+				event, err := parseCSVEvent(headers, record, file.ID, lineNum, timeIdx)
 				if err != nil {
 					return err
 				}
@@ -140,20 +140,23 @@ func newBatchCSVReader(r io.Reader) *csv.Reader {
 	return reader
 }
 
-func parseCSVEvent(headers []string, record []string, lineNum int32, timeIdx int) (db.Event, error) {
+func parseCSVEvent(headers []string, record []string, ingestID uint, lineNum int32, timeIdx int) (db.Event, error) {
 	epoch, err := strconv.Atoi(record[timeIdx])
 	if err != nil {
 		return db.Event{}, errors.Wrapf(err, "invalid event time on line %d: %s", lineNum, record[timeIdx])
 	}
 
 	event := db.Event{
+		IngestID:   ingestID,
 		LineNumber: lineNum,
 		Time:       time.Unix(int64(epoch), 0),
 		RawLog:     strings.Join(record, ","),
 	}
 
 	if idx := slices.Index(headers, "login"); idx >= 0 {
-		event.User = record[idx]
+		if !isNone(record[idx]) {
+			event.User = record[idx]
+		}
 	}
 
 	if idx := slices.Index(headers, "cip"); idx >= 0 {
@@ -184,7 +187,9 @@ func parseCSVEvent(headers []string, record []string, lineNum int32, timeIdx int
 	}
 
 	if idx := slices.Index(headers, "action"); idx >= 0 {
-		event.Action = record[idx]
+		if !isNone(record[idx]) {
+			event.Action = record[idx]
+		}
 	}
 
 	if idx := slices.Index(headers, "appname"); idx >= 0 {

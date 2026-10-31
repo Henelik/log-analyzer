@@ -13,12 +13,12 @@ func RegisterAPI(app *fiber.App, db *gorm.DB) {
 
 	files := api.Group("/files")
 	files.Post("/", UploadFile(db))
-	files.Get("/", Unimplemented)
-	files.Get("/{id}", Unimplemented)
-	files.Delete("/{id}", Unimplemented)
-	files.Get("/{id}/analysis", Unimplemented)
-	files.Get("/{id}/errors", Unimplemented)
-	files.Get("/{id}/events", Unimplemented)
+	files.Get("/", ListFiles(db))
+	files.Get("/:id", GetFile(db))
+	files.Delete("/:id", DeleteFile(db))
+	files.Get("/:id/analysis", Unimplemented)
+	files.Get("/:id/errors", Unimplemented)
+	files.Get("/:id/events", Unimplemented)
 
 	users := api.Group("/users")
 	users.Post("/login", Unimplemented)

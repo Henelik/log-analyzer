@@ -2,13 +2,11 @@ package db
 
 import (
 	"time"
-
-	"github.com/google/uuid"
 )
 
 type Event struct {
-	IngestID   uuid.UUID `gorm:"uuid;primaryKey"`
-	LineNumber int32     `gorm:"primaryKey;autoIncrement:false"`
+	IngestID   uint  `gorm:"primaryKey"`
+	LineNumber int32 `gorm:"primaryKey;autoIncrement:false"`
 
 	Time         time.Time
 	User         string `gorn:"not null; default:''"`
