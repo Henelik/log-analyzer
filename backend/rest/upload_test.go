@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/Henelik/log-analyzer/db"
 	"github.com/gofiber/fiber/v3"
@@ -21,7 +20,7 @@ import (
 
 const (
 	uploadPath       = "/api/v1/files/"
-	fullUploadHeader = "time,login,cip,sip,url,reqmethod,respcode,action,appname,reqsize,respdatasize,riskscore,threatseverity"
+	fullUploadHeader = "epochtime,login,cip,sip,srv_dport,url,reqmethod,respcode,action,appname,reqsize,respdatasize,riskscore,threatseverity"
 )
 
 func newUploadApp(t *testing.T) (*fiber.App, *gorm.DB) {
@@ -109,11 +108,37 @@ func loadFileEvents(t *testing.T, database *gorm.DB, fileID uint) []db.Event {
 	return events
 }
 
+// requireUnparsedEvent asserts that only the ingestion fields are set on an event.
+func requireUnparsedEvent(t *testing.T, event db.Event, fileID uint, lineNumber int32, rawLog string) {
+	t.Helper()
+
+	assert.Equal(t, fileID, event.IngestID)
+	assert.Equal(t, lineNumber, event.LineNumber)
+	assert.Equal(t, rawLog, event.RawLog)
+
+	assert.Nil(t, event.Time, "time is parsed out-of-band")
+	assert.Empty(t, event.User)
+	assert.Empty(t, event.ClientIP)
+	assert.Empty(t, event.ServerIP)
+	assert.Nil(t, event.ServerPort)
+	assert.Empty(t, event.URL)
+	assert.Empty(t, event.Method)
+	assert.Nil(t, event.ResponseCode)
+	assert.Empty(t, event.Action)
+	assert.Empty(t, event.AppName)
+	assert.Nil(t, event.BytesIn)
+	assert.Nil(t, event.BytesOut)
+	assert.Nil(t, event.RiskScore)
+	assert.Empty(t, event.Severity)
+	assert.False(t, event.Parsed, "events are parsed out-of-band")
+	assert.Empty(t, event.Errors)
+}
+
 func TestUploadFileStoresFileFields(t *testing.T) {
 	app, database := newUploadApp(t)
 
-	content := []byte(fullUploadHeader + "\n" +
-		"1700000000,alice,10.0.0.1,10.0.0.2,/login,POST,200,allow,portal,128,512,10,low\n")
+	record := "1700000000,alice,10.0.0.1,10.0.0.2,443,/login,POST,201 - Created,allow,portal,128,512,75,medium"
+	content := []byte(fullUploadHeader + "\n" + record + "\n")
 
 	code, body := uploadCSV(t, app, "access.csv", content)
 	require.Equal(t, http.StatusCreated, code, "body %q", body)
@@ -145,7 +170,7 @@ func TestUploadFileStoresFileFields(t *testing.T) {
 
 	events := loadFileEvents(t, database, created.ID)
 	require.Len(t, events, 1)
-	assert.Equal(t, created.ID, events[0].IngestID, "event belongs to uploaded file")
+	requireUnparsedEvent(t, events[0], created.ID, 2, record)
 }
 
 func TestUploadFileRequiresFileField(t *testing.T) {
@@ -169,7 +194,7 @@ func TestUploadFileRequiresFileField(t *testing.T) {
 	t.Run("wrong field name", func(t *testing.T) {
 		app, database := newUploadApp(t)
 
-		code, body := uploadCSVAs(t, app, "csv", "access.csv", []byte("time\n1700000000\n"))
+		code, body := uploadCSVAs(t, app, "csv", "access.csv", []byte("epochtime\n1700000000\n"))
 
 		assert.Equal(t, http.StatusBadRequest, code)
 		requireUploadError(t, body, "missing CSV file")
@@ -186,22 +211,22 @@ func TestUploadFileRejectsInvalidCSVHeaders(t *testing.T) {
 		{
 			name:    "empty file",
 			content: "",
-			want:    "uploaded file is invalid",
+			want:    "cannot read uploaded file: malformed header",
 		},
 		{
 			name:    "malformed header",
-			content: "\"time\n1700000000\n",
-			want:    "uploaded file is invalid",
+			content: "\"epochtime\n1700000000\n",
+			want:    "cannot read uploaded file: malformed header",
 		},
 		{
-			name:    "missing time column",
-			content: "login,cip\nbob,10.0.0.1\n",
-			want:    "cannot read uploaded file: missing time column",
+			name:    "missing epochtime column",
+			content: "time,login,cip\n1700000000,bob,10.0.0.1\n",
+			want:    "cannot read uploaded file: missing epochtime column",
 		},
 		{
-			name:    "time column case mismatch",
-			content: "Time\n1700000000\n",
-			want:    "cannot read uploaded file: missing time column",
+			name:    "epochtime column case mismatch",
+			content: "EpochTime\n1700000000\n",
+			want:    "cannot read uploaded file: missing epochtime column",
 		},
 	}
 
@@ -219,131 +244,46 @@ func TestUploadFileRejectsInvalidCSVHeaders(t *testing.T) {
 	}
 }
 
-func TestUploadFileParsesAllColumns(t *testing.T) {
+func TestUploadFileStoresRawLogVerbatim(t *testing.T) {
 	app, database := newUploadApp(t)
 
-	record := "1700000000,alice,10.0.0.1,10.0.0.2,/login,POST,201,allow,portal,128,512,75,medium"
-	code, body := uploadCSV(t, app, "access.csv", []byte(fullUploadHeader+"\n"+record+"\n"))
-	require.Equal(t, http.StatusCreated, code, "body %q", body)
+	header := "epochtime,login,url"
+	record := `1700000000,alice,"/search?q=a,b"`
 
-	created := decodeJSON[uploadResponse](t, body)
-	events := loadFileEvents(t, database, created.ID)
-	require.Len(t, events, 1)
-
-	event := events[0]
-
-	assert.Equal(t, created.ID, event.IngestID)
-	assert.Equal(t, int32(2), event.LineNumber)
-	assert.True(t, event.Time.Equal(time.Unix(1700000000, 0)), "time %s", event.Time)
-	assert.Equal(t, "alice", event.User)
-	assert.Equal(t, "10.0.0.1", event.ClientIP)
-	assert.Equal(t, "10.0.0.2", event.ServerIP)
-	assert.Equal(t, "/login", event.URL)
-	assert.Equal(t, "POST", event.Method)
-	require.NotNil(t, event.ResponseCode)
-	assert.Equal(t, 201, *event.ResponseCode)
-	assert.Equal(t, "allow", event.Action)
-	assert.Equal(t, "portal", event.AppName)
-	require.NotNil(t, event.BytesIn)
-	assert.Equal(t, 128, *event.BytesIn)
-	require.NotNil(t, event.BytesOut)
-	assert.Equal(t, 512, *event.BytesOut)
-	require.NotNil(t, event.RiskScore)
-	assert.Equal(t, 75, *event.RiskScore)
-	assert.Equal(t, "medium", event.Severity)
-	assert.Equal(t, record, event.RawLog)
-}
-
-func TestUploadFileOmitsOptionalColumns(t *testing.T) {
-	app, database := newUploadApp(t)
-
-	code, body := uploadCSV(t, app, "access.csv", []byte("time\n1700000000\n"))
+	code, body := uploadCSV(t, app, "quoted.csv", []byte(header+"\n"+record+"\n"))
 	require.Equal(t, http.StatusCreated, code, "body %q", body)
 
 	created := decodeJSON[uploadResponse](t, body)
 
 	var file db.File
-	require.NoError(t, database.First(&file).Error, "load file")
-	assert.Equal(t, created.ID, file.ID)
-	assert.Equal(t, "time", file.Headers)
+	require.NoError(t, database.First(&file, created.ID).Error, "load file")
+	assert.Equal(t, header, file.Headers)
 
 	events := loadFileEvents(t, database, created.ID)
 	require.Len(t, events, 1)
-
-	event := events[0]
-
-	assert.Equal(t, created.ID, event.IngestID)
-	assert.Equal(t, int32(2), event.LineNumber)
-	assert.True(t, event.Time.Equal(time.Unix(1700000000, 0)), "time %s", event.Time)
-	assert.Empty(t, event.User)
-	assert.Empty(t, event.ClientIP)
-	assert.Empty(t, event.ServerIP)
-	assert.Empty(t, event.URL)
-	assert.Empty(t, event.Method)
-	assert.Nil(t, event.ResponseCode)
-	assert.Empty(t, event.Action)
-	assert.Empty(t, event.AppName)
-	assert.Nil(t, event.BytesIn)
-	assert.Nil(t, event.BytesOut)
-	assert.Nil(t, event.RiskScore)
-	assert.Empty(t, event.Severity)
-	assert.Equal(t, "1700000000", event.RawLog)
+	requireUnparsedEvent(t, events[0], created.ID, 2, record)
+	assert.Contains(t, events[0].RawLog, `"`, "quoted field is preserved in the raw log")
 }
 
-func TestUploadFileTreatsNullMarkersAsNull(t *testing.T) {
-	tests := []struct {
-		name  string
-		value string
-	}{
-		{name: "empty", value: ""},
-		{name: "none", value: "None"},
-		{name: "na", value: "NA"},
-		{name: "n slash a", value: "N/A"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			app, database := newUploadApp(t)
-
-			content := fmt.Sprintf(
-				"time,respcode,reqsize,respdatasize,riskscore\n1700000000,%[1]s,%[1]s,%[1]s,%[1]s\n",
-				tt.value,
-			)
-			code, body := uploadCSV(t, app, "access.csv", []byte(content))
-			require.Equal(t, http.StatusCreated, code, "body %q", body)
-
-			created := decodeJSON[uploadResponse](t, body)
-			events := loadFileEvents(t, database, created.ID)
-			require.Len(t, events, 1)
-
-			event := events[0]
-			assert.Equal(t, created.ID, event.IngestID)
-			assert.Nil(t, event.ResponseCode)
-			assert.Nil(t, event.BytesIn)
-			assert.Nil(t, event.BytesOut)
-			assert.Nil(t, event.RiskScore)
-		})
-	}
-}
-
-func TestUploadFileAcceptsRiskScoreBoundaries(t *testing.T) {
+func TestUploadFileAcceptsMinimalHeader(t *testing.T) {
 	app, database := newUploadApp(t)
 
-	code, body := uploadCSV(t, app, "access.csv", []byte("time,riskscore\n1700000000,0\n1700000001,50\n1700000002,100\n"))
+	code, body := uploadCSV(t, app, "access.csv", []byte("epochtime\n1700000000\n"))
 	require.Equal(t, http.StatusCreated, code, "body %q", body)
 
 	created := decodeJSON[uploadResponse](t, body)
-	events := loadFileEvents(t, database, created.ID)
-	require.Len(t, events, 3)
 
-	for i, want := range []int{0, 50, 100} {
-		assert.Equal(t, created.ID, events[i].IngestID)
-		require.NotNil(t, events[i].RiskScore)
-		assert.Equal(t, want, *events[i].RiskScore)
-	}
+	var file db.File
+	require.NoError(t, database.First(&file, created.ID).Error, "load file")
+	assert.Equal(t, "epochtime", file.Headers)
+	assert.Equal(t, db.FileStatus(db.FileStatusUplodaded), file.Status)
+
+	events := loadFileEvents(t, database, created.ID)
+	require.Len(t, events, 1)
+	requireUnparsedEvent(t, events[0], created.ID, 2, "1700000000")
 }
 
-func TestUploadFileRejectsInvalidValues(t *testing.T) {
+func TestUploadFileStoresUnparseableValuesWithoutValidation(t *testing.T) {
 	tests := []struct {
 		name   string
 		header string
@@ -351,48 +291,43 @@ func TestUploadFileRejectsInvalidValues(t *testing.T) {
 	}{
 		{
 			name:   "invalid time",
-			header: "time",
+			header: "epochtime",
 			record: "not-a-number",
 		},
 		{
 			name:   "invalid response code",
-			header: "time,respcode",
+			header: "epochtime,respcode",
 			record: "1700000000,abc",
 		},
 		{
+			name:   "response code with non-numeric prefix",
+			header: "epochtime,respcode",
+			record: "1700000000,OK - 200",
+		},
+		{
 			name:   "invalid request size",
-			header: "time,reqsize",
+			header: "epochtime,reqsize",
 			record: "1700000000,abc",
 		},
 		{
 			name:   "invalid response data size",
-			header: "time,respdatasize",
+			header: "epochtime,respdatasize",
 			record: "1700000000,abc",
 		},
 		{
 			name:   "invalid risk score",
-			header: "time,riskscore",
+			header: "epochtime,riskscore",
 			record: "1700000000,abc",
 		},
 		{
 			name:   "risk score below range",
-			header: "time,riskscore",
+			header: "epochtime,riskscore",
 			record: "1700000000,-1",
 		},
 		{
 			name:   "risk score above range",
-			header: "time,riskscore",
+			header: "epochtime,riskscore",
 			record: "1700000000,101",
-		},
-		{
-			name:   "ragged record",
-			header: "time,login",
-			record: "1700000000",
-		},
-		{
-			name:   "malformed record",
-			header: "time,login",
-			record: "\"1700000000,alice",
 		},
 	}
 
@@ -402,11 +337,12 @@ func TestUploadFileRejectsInvalidValues(t *testing.T) {
 
 			content := fmt.Sprintf("%s\n%s\n", tt.header, tt.record)
 			code, body := uploadCSV(t, app, "access.csv", []byte(content))
+			require.Equal(t, http.StatusCreated, code, "body %q", body)
 
-			assert.Equal(t, http.StatusInternalServerError, code, "body %q", body)
-			requireUploadError(t, body, "cannot store file")
-			assert.Zero(t, countRows(t, database, &db.File{}), "file must not persist")
-			assert.Zero(t, countRows(t, database, &db.Event{}), "events must not persist")
+			created := decodeJSON[uploadResponse](t, body)
+			events := loadFileEvents(t, database, created.ID)
+			require.Len(t, events, 1)
+			requireUnparsedEvent(t, events[0], created.ID, 2, tt.record)
 		})
 	}
 }
@@ -417,7 +353,7 @@ func TestUploadFileHandlesMultipleBatches(t *testing.T) {
 	const rows = 2*uploadChunkSize + 1
 
 	var content strings.Builder
-	content.WriteString("time\n")
+	content.WriteString("epochtime\n")
 	for i := range rows {
 		fmt.Fprintf(&content, "%d\n", 1700000000+i)
 	}
@@ -428,8 +364,7 @@ func TestUploadFileHandlesMultipleBatches(t *testing.T) {
 	created := decodeJSON[uploadResponse](t, body)
 
 	var file db.File
-	require.NoError(t, database.First(&file).Error, "load file")
-	assert.Equal(t, created.ID, file.ID)
+	require.NoError(t, database.First(&file, created.ID).Error, "load file")
 	assert.Equal(t, "large.csv", file.Filename)
 	assert.Zero(t, file.Lines)
 	assert.Zero(t, file.AcceptedLines)
@@ -441,8 +376,8 @@ func TestUploadFileHandlesMultipleBatches(t *testing.T) {
 	assert.Equal(t, int32(2), events[0].LineNumber)
 	assert.Equal(t, int32(rows+1), events[len(events)-1].LineNumber)
 
-	for _, event := range events {
-		assert.Equal(t, created.ID, event.IngestID, "event on line %d", event.LineNumber)
+	for i, event := range events {
+		requireUnparsedEvent(t, event, created.ID, int32(i+2), fmt.Sprintf("%d", 1700000000+i))
 	}
 }
 
@@ -456,7 +391,7 @@ func TestUploadFileStoresMultipleFilesWithRelatedEvents(t *testing.T) {
 	}{
 		{
 			filename: "first.csv",
-			header:   "time,login,url",
+			header:   "epochtime,login,url",
 			records: []string{
 				"1700000000,alice,/one",
 				"1700000001,bob,/two",
@@ -464,7 +399,7 @@ func TestUploadFileStoresMultipleFilesWithRelatedEvents(t *testing.T) {
 		},
 		{
 			filename: "second.csv",
-			header:   "time,cip,respcode",
+			header:   "epochtime,cip,respcode",
 			records: []string{
 				"1700000100,10.0.0.9,200",
 				"1700000101,10.0.0.10,404",
@@ -473,7 +408,7 @@ func TestUploadFileStoresMultipleFilesWithRelatedEvents(t *testing.T) {
 		},
 		{
 			filename: "third.csv",
-			header:   "time",
+			header:   "epochtime",
 			records: []string{
 				"1700000200",
 			},
@@ -517,9 +452,7 @@ func TestUploadFileStoresMultipleFilesWithRelatedEvents(t *testing.T) {
 		require.Len(t, events, len(upload.records), "events for %q", upload.filename)
 
 		for row, event := range events {
-			assert.Equal(t, file.ID, event.IngestID, "event %d of %q", row, upload.filename)
-			assert.Equal(t, int32(row+2), event.LineNumber, "event %d of %q", row, upload.filename)
-			assert.Equal(t, upload.records[row], event.RawLog, "event %d of %q", row, upload.filename)
+			requireUnparsedEvent(t, event, file.ID, int32(row+2), upload.records[row])
 		}
 	}
 

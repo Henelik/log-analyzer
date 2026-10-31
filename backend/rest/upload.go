@@ -1,17 +1,13 @@
 package rest
 
 import (
-	"encoding/csv"
-	"io"
+	"bufio"
 	"log"
 	"slices"
-	"strconv"
-	"strings"
-	"time"
 
+	"github.com/Henelik/log-analyzer/csvutil"
 	"github.com/Henelik/log-analyzer/db"
 	"github.com/gofiber/fiber/v3"
-	"github.com/pkg/errors"
 	"gorm.io/gorm"
 )
 
@@ -49,26 +45,27 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 			}
 		}()
 
-		reader := newBatchCSVReader(handle)
+		scanner := bufio.NewScanner(handle)
 
-		headers, err := reader.Read()
+		// read the header
+		scanner.Scan()
+		headerString := scanner.Text()
+
+		// parse the header to ensure the epochtime column exists and get the column count
+		headers, err := csvutil.ParseRow(headerString)
 		if err != nil {
 			log.Printf("failed to read uploaded file %q: %v", header.Filename, err)
-			return c.Status(fiber.StatusBadRequest).JSON(uploadError{Error: "uploaded file is invalid"})
+			return c.Status(fiber.StatusBadRequest).JSON(uploadError{Error: "cannot read uploaded file: malformed header"})
 		}
 
-		// reader reuses its record buffer, so clone the header row before reading any data rows
-		headers = slices.Clone(headers)
-
-		timeIdx := slices.Index(headers, "time")
-		if timeIdx == -1 {
+		if !slices.Contains(headers, "epochtime") {
 			log.Printf("failed to read uploaded file %q: %v", header.Filename, err)
-			return c.Status(fiber.StatusBadRequest).JSON(uploadError{Error: "cannot read uploaded file: missing time column"})
+			return c.Status(fiber.StatusBadRequest).JSON(uploadError{Error: "cannot read uploaded file: missing epochtime column"})
 		}
 
 		file := db.File{
 			Filename: header.Filename,
-			Headers:  strings.Join(headers, ","),
+			Headers:  headerString,
 			Status:   db.FileStatusUplodaded,
 		}
 
@@ -97,25 +94,30 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 			var lineNum int32 = 2
 
 			// create the events in the db
-			for {
-				record, readErr := reader.Read()
-				switch {
-				case errors.Is(readErr, io.EOF):
-					return flush()
-				case readErr != nil:
-					return errors.Wrapf(readErr, "invalid CSV at line %d", lineNum)
-				}
-
-				event, err := parseCSVEvent(headers, record, file.ID, lineNum, timeIdx)
-				if err != nil {
-					return err
+			for scanner.Scan() {
+				event := db.Event{
+					IngestID:   file.ID,
+					LineNumber: lineNum,
+					RawLog:     scanner.Text(),
 				}
 
 				batch = append(batch, event)
 				rowsInChunk++
 
+				if rowsInChunk >= uploadChunkSize {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
+
 				lineNum++
 			}
+
+			if err := flush(); err != nil {
+				return err
+			}
+
+			return scanner.Err()
 		}); err != nil {
 			log.Printf("failed to store uploaded file %q: %v", header.Filename, err)
 
@@ -128,127 +130,4 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 			Status:   file.Status,
 		})
 	}
-}
-
-func newBatchCSVReader(r io.Reader) *csv.Reader {
-	reader := csv.NewReader(r)
-	reader.ReuseRecord = true
-
-	// enforce all rows have the same number of records as the header
-	reader.FieldsPerRecord = 0
-
-	return reader
-}
-
-func parseCSVEvent(headers []string, record []string, ingestID uint, lineNum int32, timeIdx int) (db.Event, error) {
-	epoch, err := strconv.Atoi(record[timeIdx])
-	if err != nil {
-		return db.Event{}, errors.Wrapf(err, "invalid event time on line %d: %s", lineNum, record[timeIdx])
-	}
-
-	event := db.Event{
-		IngestID:   ingestID,
-		LineNumber: lineNum,
-		Time:       time.Unix(int64(epoch), 0),
-		RawLog:     strings.Join(record, ","),
-	}
-
-	if idx := slices.Index(headers, "login"); idx >= 0 {
-		if !isNone(record[idx]) {
-			event.User = record[idx]
-		}
-	}
-
-	if idx := slices.Index(headers, "cip"); idx >= 0 {
-		event.ClientIP = record[idx]
-	}
-
-	if idx := slices.Index(headers, "sip"); idx >= 0 {
-		event.ServerIP = record[idx]
-	}
-
-	if idx := slices.Index(headers, "url"); idx >= 0 {
-		event.URL = record[idx]
-	}
-
-	if idx := slices.Index(headers, "reqmethod"); idx >= 0 {
-		event.Method = record[idx]
-	}
-
-	if idx := slices.Index(headers, "respcode"); idx >= 0 {
-		if !isNone(record[idx]) {
-			responseCode, err := strconv.Atoi(record[idx])
-			if err != nil {
-				return db.Event{}, errors.Wrapf(err, "invalid response code on line %d: %s", lineNum, record[timeIdx])
-			}
-
-			event.ResponseCode = &responseCode
-		}
-	}
-
-	if idx := slices.Index(headers, "action"); idx >= 0 {
-		if !isNone(record[idx]) {
-			event.Action = record[idx]
-		}
-	}
-
-	if idx := slices.Index(headers, "appname"); idx >= 0 {
-		event.AppName = record[idx]
-	}
-
-	if idx := slices.Index(headers, "appname"); idx >= 0 {
-		event.AppName = record[idx]
-	}
-
-	if idx := slices.Index(headers, "reqsize"); idx >= 0 {
-		if !isNone(record[idx]) {
-			bytesIn, err := strconv.Atoi(record[idx])
-			if err != nil {
-				return db.Event{}, errors.Wrapf(err, "invalid reqsize on line %d: %s", lineNum, record[timeIdx])
-			}
-
-			event.BytesIn = &bytesIn
-		}
-	}
-
-	if idx := slices.Index(headers, "respdatasize"); idx >= 0 {
-		if !isNone(record[idx]) {
-			bytesOut, err := strconv.Atoi(record[idx])
-			if err != nil {
-				return db.Event{}, errors.Wrapf(err, "invalid respsize on line %d: %s", lineNum, record[timeIdx])
-			}
-
-			event.BytesOut = &bytesOut
-		}
-	}
-
-	if idx := slices.Index(headers, "riskscore"); idx >= 0 {
-		if !isNone(record[idx]) {
-			riskScore, err := strconv.Atoi(record[idx])
-			if err != nil {
-				return db.Event{}, errors.Wrapf(err, "invalid riskscore on line %d: %s", lineNum, record[idx])
-			}
-
-			if riskScore < 0 || riskScore > 100 {
-				return db.Event{}, errors.Errorf("invalid riskscore on line %d: %s", lineNum, record[idx])
-			}
-
-			event.RiskScore = &riskScore
-		}
-	}
-
-	if idx := slices.Index(headers, "threatseverity"); idx >= 0 {
-		event.Severity = record[idx]
-	}
-
-	return event, nil
-}
-
-func isNone(s string) bool {
-	return slices.Contains([]string{
-		"",
-		"None",
-		"NA",
-		"N/A",
-	}, s)
 }

@@ -5,6 +5,7 @@ type FileStatus int16
 const (
 	FileStatusInvalid = iota
 	FileStatusUplodaded
+	FileStatusParsed
 	FileStatusAnalysisInProgress
 	FileStatusAnalyzed
 )
