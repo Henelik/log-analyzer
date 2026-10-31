@@ -17,3 +17,4 @@ Kilo Code was used as the harness for all interactions.
 |  | Add tests to ensure response code strings such as "200 - OK" are properly stripped before being parsed as an int. | Deepseek v4.1 Flash |  |
 |  | Update the test cases to reflect the design change in the UploadFIle endpoint.  Event field parsing is now done out-of-band. | Deepseek v4.1 Flash |  |
 | Files get/delete implementaiton | Implement the get and delete handlers for for files in @backend/rest/register.go .  Ignore analysis, errors, and events for now. | Deepseek v4.1 Flash | Ollama Cloud |
+| Event parse worker implementation | Finish implementing the event parser in @backend/worker/parser.go .  It needs to query files with FilesStatusUploaded, then query batches of events for the each file, parse them, and persist their new state.  Once all of the events for a file are parse, the file's status should be updated. | Deepseek v4.1 Flash | Ollama Cloud |

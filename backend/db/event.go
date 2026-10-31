@@ -10,6 +10,17 @@ import (
 	"github.com/pkg/errors"
 )
 
+type EventStatus int16
+
+const (
+	EventStatusUnparsed EventStatus = iota
+	// parsed events are events that were parsed and had no issues.  They are suitable for analysis
+	EventStatusParsed
+	// rejected events are parsed but unsuitable for analysis because of data issues
+	EventStatusRejected
+	EventStatusAnalyzed
+)
+
 type Event struct {
 	IngestID   uint  `gorm:"primaryKey"`
 	LineNumber int32 `gorm:"primaryKey;autoIncrement:false"`
@@ -29,9 +40,9 @@ type Event struct {
 	RiskScore    *int
 	Severity     string `gorm:"not null; default:''"`
 
-	RawLog string `gorm:"not null"`
-	Parsed bool   `gorm:"not null"`
-	Errors string
+	RawLog string      `gorm:"not null"`
+	Status EventStatus `gorm:"not null"`
+	Errors string      `gorm:"not null; default:''"`
 
 	File *File `gorm:"foreignKey:IngestID;references:ID;constraint:OnDelete:CASCADE;not null" json:"-"`
 }
@@ -43,6 +54,13 @@ func (event *Event) Parse(headers []string) {
 	record, err := csvutil.ParseRow(event.RawLog)
 	if err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to parse epochtime"))
+		event.finishParsing(errs)
+
+		return
+	}
+
+	if len(record) != len(headers) {
+		errs = append(errs, errors.Errorf("mismatched row length: got %d values, want %d", len(record), len(headers)))
 		event.finishParsing(errs)
 
 		return
@@ -161,16 +179,20 @@ func (event *Event) Parse(headers []string) {
 	event.finishParsing(errs)
 }
 
-// finishParsing marks the event as parsed and records any parse errors.
+// finishParsing marks the event as parsed or rejcted and records any parse errors.
 func (event *Event) finishParsing(errs []error) {
-	event.Parsed = true
+	if len(errs) == 0 {
+		event.Status = EventStatusParsed
+	} else {
+		event.Status = EventStatusRejected
 
-	messages := make([]string, 0, len(errs))
-	for _, err := range errs {
-		messages = append(messages, err.Error())
+		messages := make([]string, 0, len(errs))
+		for _, err := range errs {
+			messages = append(messages, err.Error())
+		}
+
+		event.Errors = strings.Join(messages, "; ")
 	}
-
-	event.Errors = strings.Join(messages, "; ")
 }
 
 func isNone(s string) bool {

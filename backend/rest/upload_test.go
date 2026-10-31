@@ -130,7 +130,7 @@ func requireUnparsedEvent(t *testing.T, event db.Event, fileID uint, lineNumber 
 	assert.Nil(t, event.BytesOut)
 	assert.Nil(t, event.RiskScore)
 	assert.Empty(t, event.Severity)
-	assert.False(t, event.Parsed, "events are parsed out-of-band")
+	assert.Equal(t, db.EventStatusUnparsed, event.Status, "events are parsed out-of-band")
 	assert.Empty(t, event.Errors)
 }
 
