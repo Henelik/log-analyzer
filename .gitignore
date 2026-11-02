@@ -42,3 +42,5 @@ ui/dist/*
 !ui/dist/.gitkeep
 
 .task/
+
+log_analyzer.sqlite

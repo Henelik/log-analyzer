@@ -28,6 +28,12 @@ tasks:
   run:
     desc: Run the application
     deps: [ui:build]
+    env:
+      DB_DRIVER: sqlite
+      DB_CONN_STR: file:log_analyzer.sqlite
+      SEED_USERNAME: tenex
+      SEED_PASSWORD: meow_mix
+      JWT_SECRET: wdNdGvoT56jujKN56752TyKTbQaHPsqN
     cmds:
       - go run {{.MAIN_PATH}}
 
