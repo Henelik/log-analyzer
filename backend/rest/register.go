@@ -17,7 +17,7 @@ func RegisterAPI(app *fiber.App, db *gorm.DB) {
 	files.Get("/:id", GetFile(db))
 	files.Delete("/:id", DeleteFile(db))
 	files.Get("/:id/analysis", Unimplemented)
-	files.Get("/:id/errors", Unimplemented)
+	files.Get("/:id/errors", GetEventErrors(db))
 	files.Post("/:id/events", GetEvents(db))
 
 	api.Post("/login", Login(db))

@@ -106,3 +106,7 @@ In the current implementation, all analysis of events is done with the entire va
 
 Ideally, each type of detector would query only the data it needs from the database, and run in a separate process, independently of other detection logic.
 
+### Pagination on GET endpoints
+
+Large files will potentially generate large numbers of errors and detections.  Pagination would help users navigate those objects without a slow user experience.
+

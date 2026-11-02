@@ -36,6 +36,16 @@ type eventsResponse struct {
 	Events []eventResponse `json:"events"`
 }
 
+type eventErrorResponse struct {
+	LineNumber int32  `json:"line_number"`
+	RawLog     string `json:"raw_log"`
+	Error      string `json:"error"`
+}
+
+type eventErrorsResponse struct {
+	Errors []eventErrorResponse `json:"errors"`
+}
+
 func newEventResponse(event db.Event) eventResponse {
 	response := eventResponse{
 		LineNumber:   event.LineNumber,
@@ -120,6 +130,53 @@ func GetEvents(database *gorm.DB) fiber.Handler {
 			if event, found := byLineNumber[lineNumber]; found {
 				response.Events = append(response.Events, newEventResponse(event))
 			}
+		}
+
+		return c.JSON(response)
+	}
+}
+
+// GetEventErrors returns the line number, raw log, and error message for every
+// rejected event belonging to the file, ordered by line number.
+func GetEventErrors(database *gorm.DB) fiber.Handler {
+	return func(c fiber.Ctx) error {
+		id, ok := fileID(c)
+		if !ok {
+			return c.Status(fiber.StatusBadRequest).JSON(uploadError{Error: "invalid file ID"})
+		}
+
+		var file db.File
+
+		if err := database.Select("id").First(&file, id).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return c.Status(fiber.StatusNotFound).JSON(uploadError{Error: "file not found"})
+			}
+
+			log.Printf("failed to get file %d: %v", id, err)
+
+			return c.Status(fiber.StatusInternalServerError).JSON(uploadError{Error: "cannot get event errors"})
+		}
+
+		var events []db.Event
+
+		err := database.
+			Select("line_number", "raw_log", "errors").
+			Where("ingest_id = ? AND status = ?", id, db.EventStatusRejected).
+			Order("line_number").
+			Find(&events).Error
+		if err != nil {
+			log.Printf("failed to get event errors for file %d: %v", id, err)
+
+			return c.Status(fiber.StatusInternalServerError).JSON(uploadError{Error: "cannot get event errors"})
+		}
+
+		response := eventErrorsResponse{Errors: make([]eventErrorResponse, 0, len(events))}
+		for _, event := range events {
+			response.Errors = append(response.Errors, eventErrorResponse{
+				LineNumber: event.LineNumber,
+				RawLog:     event.RawLog,
+				Error:      event.Errors,
+			})
 		}
 
 		return c.JSON(response)

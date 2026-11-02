@@ -280,3 +280,108 @@ func TestGetEventsHandlesMoreLineNumbersThanOneQueryChunk(t *testing.T) {
 		assert.Equal(t, lineNumbers[i], event.LineNumber, "event %d", i)
 	}
 }
+
+func getEventErrorsPath(id uint) string {
+	return filePath(id) + "/errors"
+}
+
+func TestGetEventErrorsReturnsOnlyRejectedEvents(t *testing.T) {
+	app, database := newFilesApp(t)
+
+	file := seedFiles(t, database)[0]
+
+	seedFileEvents(t, database, file.ID, []db.Event{
+		{LineNumber: 2, RawLog: "1700000000,alice", Status: db.EventStatusParsed},
+		{LineNumber: 3, RawLog: "1700000001,bob", Status: db.EventStatusRejected, Errors: "invalid srv_dport"},
+		{LineNumber: 4, RawLog: "1700000002,carol", Status: db.EventStatusParsed},
+		{LineNumber: 5, RawLog: "1700000003,dave", Status: db.EventStatusRejected, Errors: "failed to parse epochtime; invalid reqsize"},
+	})
+
+	code, body := doRequest(t, app, http.MethodGet, getEventErrorsPath(file.ID))
+	require.Equal(t, http.StatusOK, code, "body %q", body)
+
+	payload := decodeJSON[eventErrorsResponse](t, body)
+	require.Len(t, payload.Errors, 2)
+
+	assert.Equal(t, eventErrorResponse{
+		LineNumber: 3,
+		RawLog:     "1700000001,bob",
+		Error:      "invalid srv_dport",
+	}, payload.Errors[0])
+
+	assert.Equal(t, eventErrorResponse{
+		LineNumber: 5,
+		RawLog:     "1700000003,dave",
+		Error:      "failed to parse epochtime; invalid reqsize",
+	}, payload.Errors[1])
+}
+
+func TestGetEventErrorsEmpty(t *testing.T) {
+	app, database := newFilesApp(t)
+
+	file := seedFiles(t, database)[0]
+
+	seedFileEvents(t, database, file.ID, []db.Event{
+		{LineNumber: 2, RawLog: "two", Status: db.EventStatusParsed},
+	})
+
+	code, body := doRequest(t, app, http.MethodGet, getEventErrorsPath(file.ID))
+	require.Equal(t, http.StatusOK, code, "body %q", body)
+
+	assert.JSONEq(t, `{"errors":[]}`, string(body))
+
+	t.Run("file without events", func(t *testing.T) {
+		app, database := newFilesApp(t)
+
+		file := seedFiles(t, database)[0]
+
+		code, body := doRequest(t, app, http.MethodGet, getEventErrorsPath(file.ID))
+		require.Equal(t, http.StatusOK, code, "body %q", body)
+
+		assert.JSONEq(t, `{"errors":[]}`, string(body))
+	})
+}
+
+func TestGetEventErrorsScopesToFile(t *testing.T) {
+	app, database := newFilesApp(t)
+
+	files := seedFiles(t, database)
+
+	seedFileEvents(t, database, files[0].ID, []db.Event{
+		{LineNumber: 2, RawLog: "first", Status: db.EventStatusRejected, Errors: "first error"},
+	})
+	seedFileEvents(t, database, files[1].ID, []db.Event{
+		{LineNumber: 2, RawLog: "second", Status: db.EventStatusRejected, Errors: "second error"},
+	})
+
+	code, body := doRequest(t, app, http.MethodGet, getEventErrorsPath(files[0].ID))
+	require.Equal(t, http.StatusOK, code, "body %q", body)
+
+	payload := decodeJSON[eventErrorsResponse](t, body)
+	require.Len(t, payload.Errors, 1)
+	assert.Equal(t, "first", payload.Errors[0].RawLog)
+}
+
+func TestGetEventErrorsInvalidFileID(t *testing.T) {
+	app, _ := newFilesApp(t)
+
+	for _, id := range []string{"abc", "1.5"} {
+		t.Run(id, func(t *testing.T) {
+			code, body := doRequest(t, app, http.MethodGet, "/api/v1/files/"+id+"/errors")
+
+			assert.Equal(t, http.StatusBadRequest, code)
+			requireUploadError(t, body, "invalid file ID")
+		})
+	}
+}
+
+func TestGetEventErrorsFileNotFound(t *testing.T) {
+	app, database := newFilesApp(t)
+
+	seedFiles(t, database)
+
+	code, body := doRequest(t, app, http.MethodGet, "/api/v1/files/999/errors")
+
+	assert.Equal(t, http.StatusNotFound, code)
+	requireUploadError(t, body, "file not found")
+}
