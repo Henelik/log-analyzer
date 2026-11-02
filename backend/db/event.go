@@ -18,7 +18,6 @@ const (
 	EventStatusParsed
 	// rejected events are parsed but unsuitable for analysis because of data issues
 	EventStatusRejected
-	EventStatusAnalyzed
 )
 
 type Event struct {

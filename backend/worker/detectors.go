@@ -3,7 +3,6 @@ package worker
 import (
 	"math"
 	"slices"
-	"time"
 
 	"github.com/Henelik/log-analyzer/db"
 )
@@ -16,16 +15,17 @@ const (
 	ActionLoginSuccess = "Login Success"
 )
 
-var LoginEvents = []string{ActionLoginFail, ActionLoginSuccess}
+type Detector func([]db.Event) []db.Detection
 
-type DetectorCooldown struct {
-	EventTime  time.Time
-	EventIndex int
+var Detectors = []Detector{
+	BruteForceDetector,
 }
+
+var LoginEvents = []string{ActionLoginFail, ActionLoginSuccess}
 
 // detect IOCs over a time-sorted events slice.  RawLog is not needed.
 // Assumes all of the events in the slice were accepted (properly formatted) and are part of the same ingest, with no duplicate line numbers
-func BruteForceDetector(events []db.Event) ([]db.Detection, error) {
+func BruteForceDetector(events []db.Event) []db.Detection {
 	detections := []db.Detection{}
 	ingestID := events[0].IngestID
 
@@ -55,5 +55,5 @@ func BruteForceDetector(events []db.Event) ([]db.Detection, error) {
 		}
 	}
 
-	return detections, nil
+	return detections
 }

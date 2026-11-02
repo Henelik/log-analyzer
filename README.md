@@ -28,7 +28,7 @@ The uploaded file is separated line-by-line and streamed to the database in batc
 
 Events are parsed asynchronously after the file upload is completed.  This approach allows for larger files to be uploaded without hitting memory/timeout limits.
 
-### Fail-slow parsing
+### Event parsing surfaces all errors
 
 When errors are discovered during event parsing, the error is added to a log and parsing continues.  That way, all issues with an event's data are flagged for analyst review, and valid data is still processed for partially-valid events.  The event is flagged as "rejected" and not included in analysis.
 
@@ -37,10 +37,6 @@ When errors are discovered during event parsing, the error is added to a log and
 ### Brute force
 
 Large number of failures per user/IP address in a short window, followed by success.
-
-### Impossible travel
-
-Requests from the same user from two separate locations, withouth enough time to travel between them.
 
 ### Port scan
 
@@ -103,3 +99,10 @@ I would implement cross-ingest analysis by querying events from the same time wi
 ### Detector threshold tuning
 
 Detector threshold values were written without solid context, and should be revisited and adjusted based on SOC feedback and production data.
+
+### Asynchronous analysis workers
+
+In the current implementation, all analysis of events is done with the entire valid portion of the ingested file in memory, and detections are only created in the database after the full analysis is completed.  I chose to implement it this way for simplicity, but it is a risky approach for a production app because any failure in any detection or the database connection would result in missed or delayed detections.
+
+Ideally, each type of detector would query only the data it needs from the database, and run in a separate process, independently of other detection logic.
+

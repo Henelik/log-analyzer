@@ -145,7 +145,6 @@ func TestEventParseWorkerSkipsFilesNotUploaded(t *testing.T) {
 
 	statuses := []db.FileStatus{
 		db.FileStatusParsed,
-		db.FileStatusAnalysisInProgress,
 		db.FileStatusAnalyzed,
 	}
 

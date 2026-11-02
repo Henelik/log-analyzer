@@ -6,7 +6,6 @@ const (
 	FileStatusInvalid = iota
 	FileStatusUplodaded
 	FileStatusParsed
-	FileStatusAnalysisInProgress
 	FileStatusAnalyzed
 )
 

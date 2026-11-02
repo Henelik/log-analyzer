@@ -11,7 +11,10 @@ import (
 	"github.com/gofiber/fiber/v3"
 )
 
-const parseInterval = 30 * time.Second
+const (
+	parseInterval    = 30 * time.Second
+	analysisInterval = 30 * time.Second
+)
 
 func main() {
 	var (
@@ -27,6 +30,10 @@ func main() {
 	parser := worker.NewEventParseWorker(database)
 	parser.Start(parseInterval)
 	defer parser.Stop()
+
+	analyzer := worker.NewAnalysisWorker(database)
+	analyzer.Start(analysisInterval)
+	defer analyzer.Stop()
 
 	app := fiber.New()
 
