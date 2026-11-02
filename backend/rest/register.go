@@ -20,7 +20,7 @@ func RegisterAPI(app *fiber.App, db *gorm.DB) {
 	files.Get("/:id/errors", Unimplemented)
 	files.Post("/:id/events", GetEvents(db))
 
-	api.Post("/login", Unimplemented)
+	api.Post("/login", Login(db))
 }
 
 func Unimplemented(ctx fiber.Ctx) error {

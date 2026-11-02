@@ -29,6 +29,15 @@ func DB(driver, dsn string) (*gorm.DB, error) {
 	return db, nil
 }
 
+// Migrate creates or updates the schema for all models.
+func Migrate(db *gorm.DB) error {
+	if err := db.AutoMigrate(&User{}, &File{}, &Event{}, &Detection{}); err != nil {
+		return fmt.Errorf("migrate database: %w", err)
+	}
+
+	return nil
+}
+
 type Model struct {
 	ID        uint `gorm:"primarykey"`
 	CreatedAt time.Time

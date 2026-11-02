@@ -27,6 +27,10 @@ func main() {
 		panic(err)
 	}
 
+	if err := db.Migrate(database); err != nil {
+		panic(err)
+	}
+
 	parser := worker.NewEventParseWorker(database)
 	parser.Start(parseInterval)
 	defer parser.Stop()
