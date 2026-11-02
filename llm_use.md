@@ -48,4 +48,6 @@ Add a loop to step backward through failureEvents to find the earliest failure w
 |  | Add a function to calculate the average rate of events between the first and last event in a slice, inclusive. |  |  |
 |  | Update the BruteForceDetector to bucket consecutive failures into windows preceding successes, per user.  Over `bruteForceThresh` failures before any success will be detected as brute force.  If there were no successes for a user, all of the failures for that user should be in a single bucket. |  |  |
 |  | Make a re-usable function to convert an event slice into a slice of line numbers. |  |  |
-|  | Add tests covering all of the functions in @backend/worker/events.go .  Cover all edge cases and documented behaviors. |  |  | 
+|  | Add tests covering all of the functions in @backend/worker/events.go .  Cover all edge cases and documented behaviors. |  |  |
+| Analysis worker implementation | Finish implementing the analysis worker in @backend/worker/analyzer.go .  It needs to query the database for files with FileStatusParsed, then for each file, query all of the file's events, omitting RawLog, sorted by time, and then run all of the detectors in the Detectors slice in @backend/worker/detectors.go on them.  The resulting detections then need to be inserted into the database. | Deepseek v4.1 Flash | Ollama Cloud |
+| Events POST handler | Implement the events POST handler per @backend/rest/register.go .  This is a read-only endpoint.  The client submits a JSON list of line numbers for events to retrieve. | Deepseek v4.1 Flash | Ollama Cloud |
