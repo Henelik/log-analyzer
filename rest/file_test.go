@@ -41,7 +41,9 @@ func seedFiles(t *testing.T, database *gorm.DB) []db.File {
 func doRequest(t *testing.T, app *fiber.App, method, path string) (int, []byte) {
 	t.Helper()
 
-	resp, err := app.Test(httptest.NewRequest(method, path, nil))
+	req := authorizeRequest(t, httptest.NewRequest(method, path, nil))
+
+	resp, err := app.Test(req)
 	require.NoError(t, err, "%s %s", method, path)
 	defer func() {
 		require.NoError(t, resp.Body.Close(), "close %s %s body", method, path)

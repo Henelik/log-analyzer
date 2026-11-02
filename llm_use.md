@@ -55,3 +55,4 @@ Add a loop to step backward through failureEvents to find the earliest failure w
 | DB migration function | Create a database table migration function in @backend/db/db.go and call it after connecting to the database. | Deepseek v4.1 Flash | Ollama Cloud |
 | Implement errors endpoint | Implement the errors endpoint per @backend/rest/register.go , which returns the line number, raw log, and error string for each event with the status EventStatusRejected associated with the given file. | Deepseek v4.1 Flash | Ollama Cloud |
 | Implement detections endpoint | Implement the detections endpoint per @backend/rest/register.go that returns a list of detections for a given file ID. | Deepseek v4.1 Flash | Ollama Cloud |
+| Auth middleware | Implement Fiber middleware that restricts access to all API endpoints (except /login) to authenticated users with valid JWT tokens signed by this server. | Deepseek v4.1 Flash | Ollama Cloud |

@@ -50,7 +50,7 @@ func uploadCSVAs(t *testing.T, app *fiber.App, field, filename string, content [
 	require.NoError(t, err, "write multipart file part")
 	require.NoError(t, writer.Close(), "close multipart writer")
 
-	req := httptest.NewRequest(http.MethodPost, uploadPath, &body)
+	req := authorizeRequest(t, httptest.NewRequest(http.MethodPost, uploadPath, &body))
 	req.Header.Set(fiber.HeaderContentType, writer.FormDataContentType())
 
 	resp, err := app.Test(req)
@@ -175,7 +175,9 @@ func TestUploadFileRequiresFileField(t *testing.T) {
 	t.Run("no multipart body", func(t *testing.T) {
 		app, database := newUploadApp(t)
 
-		resp, err := app.Test(httptest.NewRequest(http.MethodPost, uploadPath, nil))
+		req := authorizeRequest(t, httptest.NewRequest(http.MethodPost, uploadPath, nil))
+
+		resp, err := app.Test(req)
 		require.NoError(t, err, "post upload")
 		defer func() {
 			require.NoError(t, resp.Body.Close(), "close upload body")

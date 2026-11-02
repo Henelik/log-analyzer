@@ -11,6 +11,13 @@ func RegisterAPI(app *fiber.App, db *gorm.DB) {
 
 	api := app.Group("/api/v1")
 
+	// Login must be registered before the auth middleware: Fiber runs matched
+	// middleware in registration order, and Login never calls Next, so the
+	// middleware is not reached for login requests.
+	api.Post("/login", Login(db))
+
+	api.Use(RequireAuth())
+
 	files := api.Group("/files")
 	files.Post("/", UploadFile(db))
 	files.Get("/", ListFiles(db))
@@ -19,6 +26,4 @@ func RegisterAPI(app *fiber.App, db *gorm.DB) {
 	files.Get("/:id/detections", GetDetections(db))
 	files.Get("/:id/errors", GetEventErrors(db))
 	files.Post("/:id/events", GetEvents(db))
-
-	api.Post("/login", Login(db))
 }

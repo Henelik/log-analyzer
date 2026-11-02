@@ -26,7 +26,7 @@ func eventPath(id uint) string {
 func postJSON(t *testing.T, app *fiber.App, path, body string) (int, []byte) {
 	t.Helper()
 
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req := authorizeRequest(t, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
 	req.Header.Set(fiber.HeaderContentType, fiber.MIMEApplicationJSON)
 
 	resp, err := app.Test(req)
