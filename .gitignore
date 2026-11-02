@@ -44,3 +44,5 @@ ui/dist/*
 .task/
 
 log_analyzer.sqlite
+
+__pycache__

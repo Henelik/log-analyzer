@@ -140,11 +140,11 @@ func (event *Event) Parse(headers []string) {
 		event.AppName = record[idx]
 	}
 
-	if idx := slices.Index(headers, "reqsize"); idx >= 0 {
+	if idx := slices.Index(headers, "reqdatasize"); idx >= 0 {
 		if !isNone(record[idx]) {
 			bytesIn, err := strconv.Atoi(record[idx])
 			if err != nil {
-				errs = append(errs, errors.Wrap(err, "invalid reqsize"))
+				errs = append(errs, errors.Wrap(err, "invalid reqdatasize"))
 			} else {
 				event.BytesIn = &bytesIn
 			}
