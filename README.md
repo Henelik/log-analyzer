@@ -1,5 +1,29 @@
 # log-analyzer
 
+## Web UI
+
+The Svelte 5 + TypeScript console is embedded in the Go binary and served from `/`.
+It covers login, log file upload, and per-file detections and rejected rows.
+
+Build output lives in `ui/dist` and is embedded with `go:embed`. Rebuild it before
+building the Go binary when the frontend changes:
+
+```sh
+task ui:build   # or: npm --prefix frontend install && npm --prefix frontend run build
+task build
+```
+
+For frontend development, run the API on `:3000` and the Vite dev server on `:5173`.
+Vite proxies `/api`, `/healthz`, and `/readyz` to the backend:
+
+```sh
+task run        # terminal 1
+task ui:dev     # terminal 2
+```
+
+Login requires a row in the `users` table with a bcrypt password hash, and the API
+needs `JWT_SECRET` set to issue tokens.
+
 ## Data processing approach
 
 ### Data quality
@@ -23,6 +47,10 @@ Epoch time is the only fully unambiguous way to handle event timing.  I consider
 ### Streaming file upload
 
 The uploaded file is separated line-by-line and streamed to the database in batches of 1000 events at a time to reduce memory usage and avoid hitting SQL query size limits.  This is done in a transaction so if the file is found to be malformed at the last line, everything is rolled back.
+
+### Embedded UI
+
+I decided to build the UI with Svelte and embed it in the backend for simplicity, so I don't need to run a separate server for the UI.  For a production app, I would split the UI into a separate project served by a separate server to decrease the attack surface and memory load in the backend.
 
 ### Events are parsed out-of-band
 
@@ -109,4 +137,3 @@ Ideally, each type of detector would query only the data it needs from the datab
 ### Pagination on GET endpoints
 
 Large files will potentially generate large numbers of errors and detections.  Pagination would help users navigate those objects without a slow user experience.
-

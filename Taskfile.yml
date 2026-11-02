@@ -2,7 +2,9 @@ version: '3'
 
 vars:
   BINARY_NAME: log-analyzer
-  MAIN_PATH: ./backend/main.go
+  MAIN_PATH: ./main.go
+  FRONTEND_DIR: frontend
+  UI_DIST: ui/dist
 
 tasks:
   default:
@@ -11,18 +13,21 @@ tasks:
       - task --list
 
   build:
-    desc: Build the application
+    desc: Build the UI and the application
+    deps: [ui:build]
     cmds:
       - go build -o {{.BINARY_NAME}} {{.MAIN_PATH}}
     sources:
       - '**/*.go'
       - 'go.mod'
       - 'go.sum'
+      - '{{.UI_DIST}}/**/*'
     generates:
       - '{{.BINARY_NAME}}'
 
   run:
     desc: Run the application
+    deps: [ui:build]
     cmds:
       - go run {{.MAIN_PATH}}
 
@@ -30,6 +35,7 @@ tasks:
     desc: Clean build artifacts
     cmds:
       - rm -f {{.BINARY_NAME}}
+      - rm -rf {{.UI_DIST}}
 
   test:
     desc: Run tests
@@ -57,14 +63,50 @@ tasks:
     cmds:
       - go mod download
       - go mod tidy
+      - npm --prefix {{.FRONTEND_DIR}} install
 
   deps:update:
     desc: Update dependencies
     cmds:
       - go get -u ./...
       - go mod tidy
+      - npm --prefix {{.FRONTEND_DIR}} update
 
   install:tools:
     desc: Install required development tools
     cmds:
       - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+
+  ui:install:
+    desc: Install UI dependencies
+    cmds:
+      - npm --prefix {{.FRONTEND_DIR}} install
+    sources:
+      - '{{.FRONTEND_DIR}}/package.json'
+      - '{{.FRONTEND_DIR}}/package-lock.json'
+
+  ui:dev:
+    desc: Run the Vite dev server with API proxying
+    dir: '{{.FRONTEND_DIR}}'
+    cmds:
+      - npm run dev
+
+  ui:check:
+    desc: Type-check the UI
+    deps: [ui:install]
+    cmds:
+      - npm --prefix {{.FRONTEND_DIR}} run check
+
+  ui:build:
+    desc: Build the UI into ui/dist for embedding
+    deps: [ui:install]
+    cmds:
+      - npm --prefix {{.FRONTEND_DIR}} run build
+    sources:
+      - '{{.FRONTEND_DIR}}/src/**/*'
+      - '{{.FRONTEND_DIR}}/index.html'
+      - '{{.FRONTEND_DIR}}/svelte.config.js'
+      - '{{.FRONTEND_DIR}}/vite.config.ts'
+      - '{{.FRONTEND_DIR}}/tsconfig.json'
+    generates:
+      - '{{.UI_DIST}}/index.html'

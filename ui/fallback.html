@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Log Analyzer</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        background: #f6f3ec;
+        color: #2c2a26;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+      }
+      main {
+        max-width: 32rem;
+        padding: 2rem;
+      }
+      h1 {
+        font-size: 1.5rem;
+        margin: 0 0 0.75rem;
+      }
+      p {
+        margin: 0 0 0.5rem;
+        line-height: 1.55;
+      }
+      code {
+        font-family: ui-monospace, monospace;
+        background: #eae5da;
+        padding: 0.1rem 0.35rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>UI bundle missing</h1>
+      <p>The Go binary serves the console from <code>ui/dist</code>, but no build output was found.</p>
+      <p>
+        Build the Svelte app first:
+        <code>task ui:build</code> (or <code>npm --prefix frontend install &amp;&amp; npm --prefix frontend run build</code>),
+        then rebuild the Go binary.
+      </p>
+    </main>
+  </body>
+</html>

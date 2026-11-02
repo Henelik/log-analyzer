@@ -7,6 +7,7 @@ import (
 
 	"github.com/Henelik/log-analyzer/db"
 	"github.com/Henelik/log-analyzer/rest"
+	"github.com/Henelik/log-analyzer/ui"
 	"github.com/Henelik/log-analyzer/worker"
 	"github.com/gofiber/fiber/v3"
 )
@@ -42,6 +43,7 @@ func main() {
 	app := fiber.New()
 
 	rest.RegisterAPI(app, database)
+	ui.RegisterUI(app)
 
 	log.Fatal(app.Listen(":3000"))
 }
