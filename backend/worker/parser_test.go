@@ -70,11 +70,11 @@ func loadFileEvents(t *testing.T, database *gorm.DB, fileID uint) []db.Event {
 func TestEventParseWorkerParsesUploadedFile(t *testing.T) {
 	database := openTestDB(t)
 
-	headers := "epochtime,login,cip,respcode,riskscore,threatseverity"
+	headers := "epochtime,login,cip,respcode,action"
 	lines := []string{
-		"1700000000,alice,10.0.0.1,200,10,low",
-		"1700000001,bob,10.0.0.2,404,50,medium",
-		"not-a-number,carol,10.0.0.3,500,90,high",
+		"1700000000,alice,10.0.0.1,200,Login Success",
+		"1700000001,bob,10.0.0.2,404,Login Fail",
+		"not-a-number,carol,10.0.0.3,500,Login Fail",
 	}
 
 	file := seedFile(t, database, headers, lines)
@@ -95,15 +95,12 @@ func TestEventParseWorkerParsesUploadedFile(t *testing.T) {
 	require.Len(t, events, len(lines))
 
 	assert.Equal(t, db.EventStatusParsed, events[0].Status)
-	require.NotNil(t, events[0].Time)
-	assert.True(t, events[0].Time.Equal(time.Unix(1700000000, 0)), "time %s", *events[0].Time)
+	assert.True(t, events[0].Time.Equal(time.Unix(1700000000, 0)), "time %s", events[0].Time)
 	assert.Equal(t, "alice", events[0].User)
 	assert.Equal(t, "10.0.0.1", events[0].ClientIP)
 	require.NotNil(t, events[0].ResponseCode)
 	assert.Equal(t, 200, *events[0].ResponseCode)
-	require.NotNil(t, events[0].RiskScore)
-	assert.Equal(t, 10, *events[0].RiskScore)
-	assert.Equal(t, "low", events[0].Severity)
+	assert.Equal(t, "Login Success", events[0].Action)
 	assert.Empty(t, events[0].Errors)
 
 	assert.Equal(t, lines[0], events[0].RawLog, "raw log is preserved")
@@ -139,8 +136,7 @@ func TestEventParseWorkerParsesAllBatches(t *testing.T) {
 
 	for i, event := range events {
 		assert.Equal(t, db.EventStatusParsed, event.Status, "line %d", event.LineNumber)
-		require.NotNil(t, event.Time, "line %d", event.LineNumber)
-		assert.True(t, event.Time.Equal(time.Unix(int64(1700000000+i), 0)), "line %d time %s", event.LineNumber, *event.Time)
+		assert.True(t, event.Time.Equal(time.Unix(int64(1700000000+i), 0)), "line %d time %s", event.LineNumber, event.Time)
 	}
 }
 
@@ -181,7 +177,7 @@ func TestEventParseWorkerSkipsFilesNotUploaded(t *testing.T) {
 		events := loadFileEvents(t, database, file.ID)
 		require.Len(t, events, 1)
 		assert.Equal(t, db.EventStatusUnparsed, events[0].Status, "file %d event status", i)
-		assert.Nil(t, events[0].Time, "file %d event time", i)
+		assert.True(t, events[0].Time.IsZero(), "file %d event time %s", i, events[0].Time)
 	}
 }
 

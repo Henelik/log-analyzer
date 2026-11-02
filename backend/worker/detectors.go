@@ -1,90 +1,57 @@
 package worker
 
 import (
-	"errors"
+	"math"
+	"slices"
 	"time"
 
 	"github.com/Henelik/log-analyzer/db"
 )
 
 const (
-	// purposely sensitive.  5 legitimate failures in a row is fairly unlikely, and exactly 5 failures generates a detection with low confidence
-	bruteForceSuccessThresh = 5 // number of failures preceding a success to be considered brute force
-	bruteForceWindow        = time.Minute * 5
-	bruteForceFailureThresh = 10 // number of successive failures in the window to be considered brute force
+	bruteForceThresh = 10
+	bruteForceRate   = 1.0 / 60 // the number of brute force events per second to be considered a detection; one per minute
+
+	ActionLoginFail    = "Login Fail"
+	ActionLoginSuccess = "Login Success"
 )
+
+var LoginEvents = []string{ActionLoginFail, ActionLoginSuccess}
 
 type DetectorCooldown struct {
 	EventTime  time.Time
 	EventIndex int
 }
 
-// detect ICOs over a time-sorted events slice.  RawLog is not needed.
-// Assumes all of the events in the slice were accepted (properly formatted) and are part of the same ingest (no duplicate line numbers)
+// detect IOCs over a time-sorted events slice.  RawLog is not needed.
+// Assumes all of the events in the slice were accepted (properly formatted) and are part of the same ingest, with no duplicate line numbers
 func BruteForceDetector(events []db.Event) ([]db.Detection, error) {
-	// map user: event line numbers
-	failureEventMap := map[string][]int32{}
 	detections := []db.Detection{}
-	var lastTime time.Time
+	ingestID := events[0].IngestID
 
-	for _, event := range events {
-		if lastTime.Before(event.Time) || lastTime.Equal(event.Time) {
-			lastTime = event.Time
-		} else {
-			return nil, errors.New("events are not sorted with ascending time")
-		}
+	loginEventsWithUsers := FilterEvents(events, func(e db.Event) bool {
+		return e.User != "" && slices.Contains(LoginEvents, e.Action)
+	})
 
-		if event.User == "" {
-			continue
-		}
-
-		switch event.Action {
-		case "Login Fail":
-			failureEventMap[event.User] = append(failureEventMap[event.User], event.LineNumber)
-
-			failureEvents := failureEventMap[event.User]
-
-			if len(failureEvents) >= bruteForceFailureThresh {
-				window := event.Time.Sub(events[failureEvents[len(failureEvents)-bruteForceSuccessThresh]].Time)
-
-				if window <= bruteForceWindow {
-					relevantEvents := windowLineNumbers(events, failureEvents, event.Time, bruteForceWindow, event.LineNumber)
-
-					confidence := min(len(relevantEvents)*10/bruteForceFailureThresh+35, 95)
-
-					detections = append(detections, db.Detection{
-						Description: "Brute Force Attempt",
-						Severity:    50,
-						Confidence:  int16(confidence),
-						Entity:      event.User,
-						Observed:    float32(len(failureEvents)),
-						Threshold:   float32(bruteForceSuccessThresh),
-						Events:      relevantEvents,
-					})
-				}
+	for user, userEvents := range SplitBy(loginEventsWithUsers, db.Event.UserKey) {
+		for _, bucket := range FailureBuckets(userEvents) {
+			if len(bucket) <= bruteForceThresh {
+				continue
 			}
-		case "Login Success":
-			if failureEvents, ok := failureEventMap[event.User]; ok {
-				if len(failureEvents) >= bruteForceSuccessThresh {
-					window := event.Time.Sub(events[failureEvents[len(failureEvents)-bruteForceSuccessThresh]].Time)
 
-					if window <= bruteForceWindow {
-						relevantEvents := windowLineNumbers(events, failureEvents, event.Time, bruteForceWindow, event.LineNumber)
+			severity := min(10*EventRate(bucket)/bruteForceRate, 100)
+			confidence := min(30+20*math.Log10(float64(len(bucket))), 100)
 
-						confidence := min(len(relevantEvents)*20/bruteForceSuccessThresh, 95)
-
-						detections = append(detections, db.Detection{
-							Description: "Brute Force Login",
-							Severity:    100,
-							Confidence:  int16(confidence),
-							Entity:      event.User,
-							Observed:    float32(len(failureEvents)),
-							Threshold:   float32(bruteForceSuccessThresh),
-							Events:      relevantEvents,
-						})
-					}
-				}
-			}
+			detections = append(detections, db.Detection{
+				IngestID:    ingestID,
+				Description: "Brute Force Attempt",
+				Severity:    int16(severity),
+				Confidence:  int16(confidence),
+				Entity:      user,
+				Observed:    float32(len(bucket)),
+				Threshold:   float32(bruteForceThresh),
+				Events:      LineNumbers(bucket),
+			})
 		}
 	}
 

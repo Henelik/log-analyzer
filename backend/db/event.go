@@ -25,7 +25,7 @@ type Event struct {
 	IngestID   uint  `gorm:"primaryKey"`
 	LineNumber int32 `gorm:"primaryKey;autoIncrement:false"`
 
-	Time         *time.Time
+	Time         time.Time
 	User         string `gorm:"not null; default:''"`
 	ClientIP     string `gorm:"not null; default:''"`
 	ServerIP     string `gorm:"not null; default:''"`
@@ -37,14 +37,20 @@ type Event struct {
 	AppName      string `gorm:"not null; default:''"`
 	BytesIn      *int
 	BytesOut     *int
-	RiskScore    *int
-	Severity     string `gorm:"not null; default:''"`
 
 	RawLog string      `gorm:"not null"`
 	Status EventStatus `gorm:"not null"`
 	Errors string      `gorm:"not null; default:''"`
 
 	File *File `gorm:"foreignKey:IngestID;references:ID;constraint:OnDelete:CASCADE;not null" json:"-"`
+}
+
+func (e Event) UserKey() string {
+	return e.User
+}
+
+func (e Event) ClientIPKey() string {
+	return e.ClientIP
 }
 
 // parse the event's RawLog, and fill in the event fields.  Records any errors encountered to the event Errors field.
@@ -71,8 +77,7 @@ func (event *Event) Parse(headers []string) {
 		if err != nil {
 			errs = append(errs, errors.Wrap(err, "failed to parse epochtime"))
 		} else {
-			epochTime := time.Unix(int64(epoch), 0)
-			event.Time = &epochTime
+			event.Time = time.Unix(int64(epoch), 0)
 		}
 	}
 
@@ -156,24 +161,6 @@ func (event *Event) Parse(headers []string) {
 				event.BytesOut = &bytesOut
 			}
 		}
-	}
-
-	if idx := slices.Index(headers, "riskscore"); idx >= 0 {
-		if !isNone(record[idx]) {
-			riskScore, err := strconv.Atoi(record[idx])
-			switch {
-			case err != nil:
-				errs = append(errs, errors.Wrap(err, "invalid riskscore"))
-			case riskScore < 0 || riskScore > 100:
-				errs = append(errs, errors.Errorf("invalid riskscore"))
-			default:
-				event.RiskScore = &riskScore
-			}
-		}
-	}
-
-	if idx := slices.Index(headers, "threatseverity"); idx >= 0 {
-		event.Severity = record[idx]
 	}
 
 	event.finishParsing(errs)

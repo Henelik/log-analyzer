@@ -18,3 +18,34 @@ Kilo Code was used as the harness for all interactions.
 |  | Update the test cases to reflect the design change in the UploadFIle endpoint.  Event field parsing is now done out-of-band. | Deepseek v4.1 Flash |  |
 | Files get/delete implementaiton | Implement the get and delete handlers for for files in @backend/rest/register.go .  Ignore analysis, errors, and events for now. | Deepseek v4.1 Flash | Ollama Cloud |
 | Event parse worker implementation | Finish implementing the event parser in @backend/worker/parser.go .  It needs to query files with FilesStatusUploaded, then query batches of events for the each file, parse them, and persist their new state.  Once all of the events for a file are parse, the file's status should be updated. | Deepseek v4.1 Flash | Ollama Cloud |
+| Event filtering functions | backend/worker/detectors.go:44-62
+```
+if window <= bruteForceWindow {
+						// tuned confidence equation
+						// 5 attempts = 20 confidence
+						// 25+ events = 100 confidence
+						confidence := min(len(failureEvents)*20/bruteForceSuccessThresh, 100)
+
+						relevantEvents := failureEvents[len(failureEvents)-bruteForceSuccessThresh-1:]
+						relevantEvents = append(relevantEvents, event.LineNumber)
+
+						detections = append(detections, db.Detection{
+							Description: "Brute Force Login",
+							Severity:    100,
+							Confidence:  int16(confidence),
+							Entity:      event.User,
+							Observed:    float32(len(failureEvents)),
+							Threshold:   float32(bruteForceSuccessThresh),
+							Events:      relevantEvents,
+						})
+					}
+```
+
+Add a loop to step backward through failureEvents to find the earliest failure within the brute force window, and set the starting index of the relevantEvents slice to that. | Deepseek v4.1 Flash | Ollama Cloud |
+|  | Make the relevant event search a re-usable function.  Also add a function that can be used to filter the events using a function. |  |  |
+|  | Add a function to get a list of all users who appear in any event in a slice. |  |  |
+|  | Create a SplitBy function that splits a slice of events by the event attribute returned by a function, and returns a map where each key is the attribute's value and the value is a slice of events for that user. |  |  |
+|  | Add a function to calculate the average rate of events between the first and last event in a slice, inclusive. |  |  |
+|  | Update the BruteForceDetector to bucket consecutive failures into windows preceding successes, per user.  Over `bruteForceThresh` failures before any success will be detected as brute force.  If there were no successes for a user, all of the failures for that user should be in a single bucket. |  |  |
+|  | Make a re-usable function to convert an event slice into a slice of line numbers. |  |  |
+|  | Add tests covering all of the functions in @backend/worker/events.go .  Cover all edge cases and documented behaviors. |  |  | 

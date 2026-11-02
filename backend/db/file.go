@@ -23,11 +23,3 @@ type File struct {
 	DuplicateLines int32      `gorm:"not null"`
 	Status         FileStatus `gorm:"not null"`
 }
-
-type Row struct {
-	Model
-}
-
-type Analysis struct {
-	Model
-}

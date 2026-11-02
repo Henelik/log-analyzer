@@ -116,7 +116,7 @@ func (worker *EventParseWorker) parseFile(file db.File) error {
 }
 
 func (worker *EventParseWorker) loadEventBatch(fileID uint, afterLine int32) ([]db.Event, error) {
-	var batch []db.Event = make([]db.Event, 0, eventParseBatchSize)
+	batch := make([]db.Event, 0, eventParseBatchSize)
 
 	err := worker.database.
 		Where("ingest_id = ? AND line_number > ? AND status = ?", fileID, afterLine, db.EventStatusUnparsed).

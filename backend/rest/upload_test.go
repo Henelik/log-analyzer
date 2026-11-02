@@ -20,7 +20,7 @@ import (
 
 const (
 	uploadPath       = "/api/v1/files/"
-	fullUploadHeader = "epochtime,login,cip,sip,srv_dport,url,reqmethod,respcode,action,appname,reqsize,respdatasize,riskscore,threatseverity"
+	fullUploadHeader = "epochtime,login,cip,sip,srv_dport,url,reqmethod,respcode,action,appname,reqsize,respdatasize"
 )
 
 func newUploadApp(t *testing.T) (*fiber.App, *gorm.DB) {
@@ -116,7 +116,7 @@ func requireUnparsedEvent(t *testing.T, event db.Event, fileID uint, lineNumber 
 	assert.Equal(t, lineNumber, event.LineNumber)
 	assert.Equal(t, rawLog, event.RawLog)
 
-	assert.Nil(t, event.Time, "time is parsed out-of-band")
+	assert.True(t, event.Time.IsZero(), "time is parsed out-of-band")
 	assert.Empty(t, event.User)
 	assert.Empty(t, event.ClientIP)
 	assert.Empty(t, event.ServerIP)
@@ -128,8 +128,6 @@ func requireUnparsedEvent(t *testing.T, event db.Event, fileID uint, lineNumber 
 	assert.Empty(t, event.AppName)
 	assert.Nil(t, event.BytesIn)
 	assert.Nil(t, event.BytesOut)
-	assert.Nil(t, event.RiskScore)
-	assert.Empty(t, event.Severity)
 	assert.Equal(t, db.EventStatusUnparsed, event.Status, "events are parsed out-of-band")
 	assert.Empty(t, event.Errors)
 }
@@ -137,7 +135,7 @@ func requireUnparsedEvent(t *testing.T, event db.Event, fileID uint, lineNumber 
 func TestUploadFileStoresFileFields(t *testing.T) {
 	app, database := newUploadApp(t)
 
-	record := "1700000000,alice,10.0.0.1,10.0.0.2,443,/login,POST,201 - Created,allow,portal,128,512,75,medium"
+	record := "1700000000,alice,10.0.0.1,10.0.0.2,443,/login,POST,201 - Created,allow,portal,128,512"
 	content := []byte(fullUploadHeader + "\n" + record + "\n")
 
 	code, body := uploadCSV(t, app, "access.csv", content)
@@ -313,21 +311,6 @@ func TestUploadFileStoresUnparseableValuesWithoutValidation(t *testing.T) {
 			name:   "invalid response data size",
 			header: "epochtime,respdatasize",
 			record: "1700000000,abc",
-		},
-		{
-			name:   "invalid risk score",
-			header: "epochtime,riskscore",
-			record: "1700000000,abc",
-		},
-		{
-			name:   "risk score below range",
-			header: "epochtime,riskscore",
-			record: "1700000000,-1",
-		},
-		{
-			name:   "risk score above range",
-			header: "epochtime,riskscore",
-			record: "1700000000,101",
 		},
 	}
 
