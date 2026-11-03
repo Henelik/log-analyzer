@@ -180,10 +180,6 @@
                 <p class="notes">{detection.notes}</p>
               {/if}
 
-              {#if detection.notes}
-                <p class="description">{detection.notes}</p>
-              {/if}
-
               {#if eventsLoading}
                 <p class="note">Loading related events…</p>
               {:else if eventsError}

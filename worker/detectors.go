@@ -12,12 +12,16 @@ const (
 	bruteForceRate   = 1.0 / 60 // the number of brute force events per second to be considered a detection; one per minute
 
 	portScanThresh    = 15
-	exfiltraionThresh = 10 << 6 // egress events over 10 MB are flaggeed
+	exfiltraionThresh = 10e6 // egress events over 10 MB are flaggeed
 
 	ActionLoginFail    = "Login Fail"
 	ActionLoginSuccess = "Login Success"
 
 	ActionEgress = "Egress"
+
+	DescriptionBruteForce = "Brute Force Attempt"
+	DescriptionPortScan   = "Port Scan"
+	DescriptionExfil      = "Data Exfiltration"
 )
 
 type Detector func([]db.Event) []db.Detection
@@ -25,6 +29,7 @@ type Detector func([]db.Event) []db.Detection
 var Detectors = []Detector{
 	BruteForceDetector,
 	PortScanDetector,
+	ExfilDetector,
 }
 
 var LoginEvents = []string{ActionLoginFail, ActionLoginSuccess}
@@ -51,7 +56,7 @@ func BruteForceDetector(events []db.Event) []db.Detection {
 
 			detections = append(detections, db.Detection{
 				IngestID:    ingestID,
-				Description: "Brute Force Attempt",
+				Description: DescriptionBruteForce,
 				Severity:    int16(severity),
 				Confidence:  int16(confidence),
 				Priority:    int16(priority),
@@ -84,7 +89,7 @@ func PortScanDetector(events []db.Event) []db.Detection {
 
 			detections = append(detections, db.Detection{
 				IngestID:    ingestID,
-				Description: "Port Scan",
+				Description: DescriptionPortScan,
 				Severity:    int16(severity),
 				Confidence:  int16(confidence),
 				Priority:    int16(priority),
@@ -106,14 +111,14 @@ func ExfilDetector(events []db.Event) []db.Detection {
 	ingestID := events[0].IngestID
 
 	egressEvents := FilterEvents(events, func(e db.Event) bool {
-		return e.BytesOut != nil && *e.BytesOut >= exfiltraionThresh && e.Action == ActionEgress
+		return e.BytesIn != nil && *e.BytesIn >= exfiltraionThresh && e.Action == ActionEgress
 	})
 
 	for _, event := range egressEvents {
-		bytesOut := *event.BytesOut
+		bytesIn := *event.BytesIn
 
-		severity := min(float64(bytesOut)/exfiltraionThresh, 100)
-		confidence := min(30+20*math.Log10(float64(bytesOut)/100000), 100)
+		severity := min(float64(bytesIn)/exfiltraionThresh, 100)
+		confidence := min(30+20*math.Log10(float64(bytesIn)/100000), 100)
 		priority := severity * (0.5 + 0.5*confidence/100.0)
 
 		entity := event.User
@@ -123,14 +128,16 @@ func ExfilDetector(events []db.Event) []db.Detection {
 
 		detections = append(detections, db.Detection{
 			IngestID:    ingestID,
-			Description: "Data Exfiltration",
+			Description: DescriptionExfil,
 			Severity:    int16(severity),
 			Confidence:  int16(confidence),
 			Priority:    int16(priority),
 			Entity:      entity,
-			Observed:    float32(bytesOut),
-			Threshold:   float32(portScanThresh),
+			Observed:    float32(bytesIn),
+			Threshold:   float32(exfiltraionThresh),
 			Events:      []int32{event.LineNumber},
 		})
 	}
+
+	return detections
 }

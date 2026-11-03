@@ -51,3 +51,4 @@ Kilo Code was used as the harness for all interactions.
 |  | The model is including Markdown style code quoting in the response.  Before trying to parse the JSON response, check for and remove the code quoting. |  |  |
 | Time range in detector dropdown | The UI should display the time range of each detection, as determined by the earliest and latest event times in the relevant events.  The time display should be inside the dropdown for the detection. @frontend/src/components/DetectionList.svelte | Deepseek v4.1 Flash | Ollama Cloud |
 |  | The detection description should be displayed after the detection metadata and above the event table in the dropdown. |  |  |
+| Add exfiltration IOCs to log generator | Add a feature to @scripts/generate_events.py to create a defined number of data exfiltration IOCs, as defined in @worker/detectors.go | Deepseek v4.1 Flash | Ollama Cloud |
