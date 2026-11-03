@@ -14,7 +14,7 @@ import (
 const (
 	eventParseBatchSize = 100
 
-	defaultParseInterval = 30 * time.Second
+	defaultParseInterval = time.Second
 )
 
 type EventParseWorker struct {
@@ -166,7 +166,6 @@ func (worker *EventParseWorker) finishFile(fileID uint) error {
 		Where("id = ? AND status = ?", fileID, db.FileStatusUplodaded).
 		Updates(map[string]any{
 			"status":         db.FileStatusParsed,
-			"lines":          lines,
 			"accepted_lines": accepted,
 			"rejected_lines": rejected,
 		}).Error

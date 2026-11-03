@@ -2,6 +2,7 @@ package rest
 
 import (
 	"bufio"
+	"crypto/sha256"
 	"log"
 	"slices"
 
@@ -71,7 +72,7 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 
 		if err := database.Transaction(func(tx *gorm.DB) error {
 			batch := make([]db.Event, 0, uploadChunkSize)
-			rowsInChunk := 0
+			seen := make(map[[sha256.Size]byte]struct{}, uploadChunkSize)
 
 			flush := func() error {
 				if len(batch) == 0 {
@@ -93,18 +94,26 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 			// the header was line 1
 			var lineNum int32 = 2
 
-			// create the events in the db
+			// create the events in the db, skipping rows already seen in this file
 			for scanner.Scan() {
-				event := db.Event{
-					IngestID:   file.ID,
-					LineNumber: lineNum,
-					RawLog:     scanner.Text(),
+				raw := scanner.Text()
+
+				hash := sha256.Sum256([]byte(raw))
+				if _, found := seen[hash]; found {
+					file.DuplicateLines++
+					lineNum++
+					continue
 				}
 
-				batch = append(batch, event)
-				rowsInChunk++
+				seen[hash] = struct{}{}
 
-				if rowsInChunk >= uploadChunkSize {
+				batch = append(batch, db.Event{
+					IngestID:   file.ID,
+					LineNumber: lineNum,
+					RawLog:     raw,
+				})
+
+				if len(batch) >= uploadChunkSize {
 					if err := flush(); err != nil {
 						return err
 					}
@@ -117,7 +126,14 @@ func UploadFile(database *gorm.DB) fiber.Handler {
 				return err
 			}
 
-			return scanner.Err()
+			if err := scanner.Err(); err != nil {
+				return err
+			}
+
+			// 2 extra lines counted: the header, and the extra increment at the end of the loop
+			file.Lines = lineNum - 2
+
+			return tx.Save(&file).Error
 		}); err != nil {
 			log.Printf("failed to store uploaded file %q: %v", header.Filename, err)
 

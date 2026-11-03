@@ -116,3 +116,12 @@ tasks:
       - '{{.FRONTEND_DIR}}/tsconfig.json'
     generates:
       - '{{.UI_DIST}}/index.html'
+
+  logs:
+    desc: Generate example logs
+    cmds:
+      - python3 scripts/generate_events.py
+    sources:
+      - scripts/generate_events.py
+    generates:
+      - events.csv

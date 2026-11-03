@@ -7,7 +7,6 @@
   --ink: oklch(0.23 0.015 75);
   --ink-soft: oklch(0.42 0.015 75);
   --ink-faint: oklch(0.58 0.012 78);
-  --rule-faint: oklch(94.1% 0.00733 80.576);
   --rule: oklch(0.86 0.01 80);
   --rule-strong: oklch(0.72 0.014 78);
   --signal: oklch(0.55 0.18 35);
@@ -40,9 +39,7 @@ body,
 
 body {
   margin: 0;
-  background:
-    linear-gradient(to right, var(--rule-faint) 1px, transparent 1px) 0 0 / 4rem 100%,
-    var(--paper);
+  background: var(--paper);
   background-attachment: fixed;
 }
 

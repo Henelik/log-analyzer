@@ -42,7 +42,7 @@ ui/dist/*
 !ui/dist/.gitkeep
 
 .task/
+__pycache__/
 
 log_analyzer.sqlite
-
-__pycache__
+events.csv

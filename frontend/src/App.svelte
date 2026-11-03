@@ -235,7 +235,11 @@
             >
               {#if tab === 'errors'}
                 {#key selected.status}
-                  <ErrorList fileId={selected.id} status={selected.status} />
+                  <ErrorList
+                    fileId={selected.id}
+                    status={selected.status}
+                    headers={selected.headers}
+                  />
                 {/key}
               {/if}
             </div>

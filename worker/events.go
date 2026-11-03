@@ -28,6 +28,17 @@ func SplitBy[T any, K comparable](items []T, key func(T) K) map[K][]T {
 	return groups
 }
 
+// CountUnique returns the number of distinct values of key among items.  It does not mutate items.
+func CountUnique[T any, K comparable](items []T, key func(T) K) int {
+	seen := make(map[K]struct{}, len(items))
+
+	for _, item := range items {
+		seen[key(item)] = struct{}{}
+	}
+
+	return len(seen)
+}
+
 // EventRate returns the average number of events per second across the span of events,
 // counting both endpoints.  Events are assumed to be time-sorted.  Returns 0 for fewer than
 // two events or a non-positive span.

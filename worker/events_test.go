@@ -120,6 +120,38 @@ func TestSplitByDoesNotMutateInput(t *testing.T) {
 	assert.Equal(t, int32(1), events[0].LineNumber)
 }
 
+func TestCountUniqueEmpty(t *testing.T) {
+	assert.Zero(t, CountUnique[db.Event, string](nil, db.Event.UserKey))
+	assert.Zero(t, CountUnique([]db.Event{}, db.Event.UserKey))
+}
+
+func TestCountUniqueCountsDistinct(t *testing.T) {
+	events := []db.Event{
+		{User: "alice"},
+		{User: "bob"},
+		{User: "alice"},
+		{User: ""},
+	}
+
+	assert.Equal(t, 3, CountUnique(events, db.Event.UserKey), "empty key counts as a value")
+	assert.Equal(t, 1, CountUnique(events, db.Event.ClientIPKey), "identical keys count once")
+}
+
+func TestCountUniqueNonStringKey(t *testing.T) {
+	events := makeEvents(1, 2, 1, 3)
+
+	assert.Equal(t, 3, CountUnique(events, func(e db.Event) int32 { return e.LineNumber }))
+	assert.Equal(t, 1, CountUnique(events, func(db.Event) bool { return true }))
+}
+
+func TestCountUniqueDoesNotMutateInput(t *testing.T) {
+	events := []db.Event{{LineNumber: 1, User: "alice"}}
+
+	CountUnique(events, func(e db.Event) int32 { return e.LineNumber })
+
+	assert.Equal(t, int32(1), events[0].LineNumber)
+}
+
 func TestEventRateEmptyAndSingle(t *testing.T) {
 	assert.Zero(t, EventRate(nil))
 	assert.Zero(t, EventRate([]db.Event{}))

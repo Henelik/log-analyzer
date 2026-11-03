@@ -459,6 +459,110 @@ func TestUploadFileStoresMultipleFilesWithRelatedEvents(t *testing.T) {
 	}
 }
 
+func TestUploadFileDeduplicatesRowsWithinFile(t *testing.T) {
+	app, database := newUploadApp(t)
+
+	header := "epochtime,login,url"
+	records := []string{
+		"1700000000,alice,/one",
+		"1700000000,alice,/one",
+		"1700000001,bob,/two",
+		"1700000000,alice,/one",
+	}
+
+	code, body := uploadCSV(t, app, "dupes.csv", []byte(header+"\n"+strings.Join(records, "\n")+"\n"))
+	require.Equal(t, http.StatusCreated, code, "body %q", body)
+
+	created := decodeJSON[uploadResponse](t, body)
+
+	var file db.File
+	require.NoError(t, database.First(&file, created.ID).Error, "load file")
+	assert.Equal(t, int32(2), file.DuplicateLines)
+
+	events := loadFileEvents(t, database, created.ID)
+	require.Len(t, events, 2)
+	requireUnparsedEvent(t, events[0], created.ID, 2, records[0])
+	requireUnparsedEvent(t, events[1], created.ID, 4, records[2])
+
+	assert.Equal(t, int64(2), countRows(t, database, &db.Event{}))
+}
+
+func TestUploadFileDeduplicatesOnlyWithinFile(t *testing.T) {
+	app, database := newUploadApp(t)
+
+	header := "epochtime,login,url"
+	records := []string{
+		"1700000000,alice,/one",
+		"1700000001,bob,/two",
+	}
+
+	first, body := uploadCSV(t, app, "first.csv", []byte(header+"\n"+strings.Join(records, "\n")+"\n"))
+	require.Equal(t, http.StatusCreated, first, "body %q", body)
+
+	firstUpload := decodeJSON[uploadResponse](t, body)
+
+	var firstFile db.File
+	require.NoError(t, database.First(&firstFile, firstUpload.ID).Error, "load first file")
+	assert.Zero(t, firstFile.DuplicateLines)
+
+	second, body := uploadCSV(t, app, "second.csv", []byte(header+"\n"+strings.Join(records, "\n")+"\n"))
+	require.Equal(t, http.StatusCreated, second, "body %q", body)
+
+	secondUpload := decodeJSON[uploadResponse](t, body)
+
+	var file db.File
+	require.NoError(t, database.First(&file, secondUpload.ID).Error, "load second file")
+	assert.Zero(t, file.DuplicateLines, "duplicates are tracked per file only")
+
+	events := loadFileEvents(t, database, secondUpload.ID)
+	require.Len(t, events, 2)
+	requireUnparsedEvent(t, events[0], secondUpload.ID, 2, records[0])
+	requireUnparsedEvent(t, events[1], secondUpload.ID, 3, records[1])
+
+	assert.Equal(t, int64(4), countRows(t, database, &db.Event{}), "rows repeated across files are stored")
+}
+
+func TestUploadFileStoresDuplicateFreeFileWithoutCounter(t *testing.T) {
+	app, database := newUploadApp(t)
+
+	content := "epochtime,login\n1700000000,alice\n1700000001,bob\n"
+
+	code, body := uploadCSV(t, app, "unique.csv", []byte(content))
+	require.Equal(t, http.StatusCreated, code, "body %q", body)
+
+	created := decodeJSON[uploadResponse](t, body)
+
+	var file db.File
+	require.NoError(t, database.First(&file, created.ID).Error, "load file")
+	assert.Zero(t, file.DuplicateLines)
+}
+
+func TestUploadFileDeduplicatesAcrossBatches(t *testing.T) {
+	app, database := newUploadApp(t)
+
+	const rows = uploadChunkSize + 1
+
+	var content strings.Builder
+	content.WriteString("epochtime\n")
+	for i := range rows {
+		fmt.Fprintf(&content, "%d\n", 1700000000+i)
+	}
+
+	content.WriteString("1700000000\n")
+	content.WriteString("1700000000\n")
+
+	code, body := uploadCSV(t, app, "batched.csv", []byte(content.String()))
+	require.Equal(t, http.StatusCreated, code, "body %q", body)
+
+	created := decodeJSON[uploadResponse](t, body)
+
+	var file db.File
+	require.NoError(t, database.First(&file, created.ID).Error, "load file")
+	assert.Equal(t, int32(2), file.DuplicateLines, "duplicates are detected across batches")
+
+	assert.Equal(t, int64(rows), countRows(t, database, &db.Event{}))
+}
+
 func countFileEvents(t *testing.T, database *gorm.DB, fileID uint) int64 {
 	t.Helper()
 

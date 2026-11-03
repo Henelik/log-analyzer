@@ -4,6 +4,8 @@
 
   let { fileId, status }: { fileId: number; status: number } = $props();
 
+  const analysisPending = $derived(status === 1 || status === 2);
+
   let detections = $state<Detection[]>([]);
   let loading = $state(true);
   let error = $state('');
@@ -74,7 +76,12 @@
   <div class="block-head">
     <div>
       <span class="kicker">analysis</span>
-      <h3 id="detections-heading">Detections</h3>
+      <div class="heading">
+        <h3 id="detections-heading">Detections</h3>
+        {#if analysisPending}
+          <span class="spinner" role="status" aria-label="Analysis in progress"></span>
+        {/if}
+      </div>
     </div>
     {#if !loading && !error}
       <span class="count mono">{detections.length} found</span>
@@ -92,7 +99,7 @@
       </p>
       <p class="note">
         {status < 3
-          ? 'The analysis worker runs every 30 seconds. Detections appear here once this ingest is processed.'
+          ? 'Detections appear here once this ingest is processed.'
           : 'No matching brute force, port scan, or exfiltration patterns were found in this ingest.'}
       </p>
     </div>
@@ -222,6 +229,27 @@
     font-size: 1.125rem;
     font-weight: 650;
     letter-spacing: -0.01em;
+  }
+
+  .heading {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+
+  .spinner {
+    width: 0.85rem;
+    height: 0.85rem;
+    border: 2px solid var(--rule);
+    border-top-color: var(--signal);
+    border-radius: 50%;
+    animation: spin 700ms linear infinite;
+  }
+
+  @keyframes spin {
+    to {
+      transform: rotate(360deg);
+    }
   }
 
   .count {

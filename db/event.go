@@ -52,6 +52,15 @@ func (e Event) ClientIPKey() string {
 	return e.ClientIP
 }
 
+// returns 0 if e.ServerPort == nil
+func (e Event) PortKey() int {
+	if e.ServerPort != nil {
+		return *e.ServerPort
+	}
+
+	return 0
+}
+
 // parse the event's RawLog, and fill in the event fields.  Records any errors encountered to the event Errors field.
 func (event *Event) Parse(headers []string) {
 	errs := []error{}

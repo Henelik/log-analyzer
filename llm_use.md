@@ -18,30 +18,7 @@ Kilo Code was used as the harness for all interactions.
 |  | Update the test cases to reflect the design change in the UploadFIle endpoint.  Event field parsing is now done out-of-band. | Deepseek v4.1 Flash |  |
 | Files get/delete implementaiton | Implement the get and delete handlers for for files in @backend/rest/register.go .  Ignore analysis, errors, and events for now. | Deepseek v4.1 Flash | Ollama Cloud |
 | Event parse worker implementation | Finish implementing the event parser in @backend/worker/parser.go .  It needs to query files with FilesStatusUploaded, then query batches of events for the each file, parse them, and persist their new state.  Once all of the events for a file are parse, the file's status should be updated. | Deepseek v4.1 Flash | Ollama Cloud |
-| Event filtering functions | backend/worker/detectors.go:44-62
-```
-if window <= bruteForceWindow {
-						// tuned confidence equation
-						// 5 attempts = 20 confidence
-						// 25+ events = 100 confidence
-						confidence := min(len(failureEvents)*20/bruteForceSuccessThresh, 100)
-
-						relevantEvents := failureEvents[len(failureEvents)-bruteForceSuccessThresh-1:]
-						relevantEvents = append(relevantEvents, event.LineNumber)
-
-						detections = append(detections, db.Detection{
-							Description: "Brute Force Login",
-							Severity:    100,
-							Confidence:  int16(confidence),
-							Entity:      event.User,
-							Observed:    float32(len(failureEvents)),
-							Threshold:   float32(bruteForceSuccessThresh),
-							Events:      relevantEvents,
-						})
-					}
-```
-
-Add a loop to step backward through failureEvents to find the earliest failure within the brute force window, and set the starting index of the relevantEvents slice to that. | Deepseek v4.1 Flash | Ollama Cloud |
+| Event filtering functions | backend/worker/detectors.go:44-62 Add a loop to step backward through failureEvents to find the earliest failure within the brute force window, and set the starting index of the relevantEvents slice to that. | Deepseek v4.1 Flash | Ollama Cloud |
 |  | Make the relevant event search a re-usable function.  Also add a function that can be used to filter the events using a function. |  |  |
 |  | Add a function to get a list of all users who appear in any event in a slice. |  |  |
 |  | Create a SplitBy function that splits a slice of events by the event attribute returned by a function, and returns a map where each key is the attribute's value and the value is a slice of events for that user. |  |  |
@@ -57,3 +34,11 @@ Add a loop to step backward through failureEvents to find the earliest failure w
 | Implement detections endpoint | Implement the detections endpoint per @backend/rest/register.go that returns a list of detections for a given file ID. | Deepseek v4.1 Flash | Ollama Cloud |
 | Auth middleware | Implement Fiber middleware that restricts access to all API endpoints (except /login) to authenticated users with valid JWT tokens signed by this server. | Deepseek v4.1 Flash | Ollama Cloud |
 | User seeding | Create a function that seeds a user in the database.  @main.go should call the function to set up a test user if credentials were provided via environment variables, after migrating the database. | Deepseek v4.1 Flash | Ollama Cloud |
+| Log generator script | Create a Python script that generates an event log CSV file with a specified number of events and IOCs, defined via env.  The file should follow the format in @db/event.go .  The script should generate values for all parsed fields.  Invalid events should be peppered in at a ratio defined via env.  Events may be invalid because of missing or incorrect data in epochtime, srv_dport, respcode, reqdatasize, or respdatasize.  Events may also be invalid because of a field number mismatch between that event and the file header. | Deepseek v4.1 Flash | Ollama Cloud |
+|  | Event timestamps should not be incrementing, they should be a random number of seconds apart from 0 to 100. |  |  |
+|  | Add a new feature that makes some rows duplicates of a neighboring row, definted by the DUPLICATE_RATIO environment variable (default 0.05).  Rows that were already invalidated should not be selected to become duplicate rows. |  |  |
+|  | IOCs generated should have events 1 to 100 times the threshold, rather than exacatly the threshold every time. |  |  |
+| Error table | In @frontend/src/components/ErrorList.svelte , rejected rows that have the same item count as the headers need to be shown in a table with the header from the file object, instead of simply being displayed as a raw log. | Deepseek v4.1 Flash | Ollama Cloud |
+| Deduplication | Implement deduplication in @rest/upload.go , using SHA256 to hash raw rows into keys, and then check if the row was already parsed before inserting it.  If it is already present, increment the counter on the file object. | Deepseek v4.1 Flash | Ollama Cloud |
+|  | The row hashes should be stored in-memory only, not checked against the database.  Deduplication is per-file only. |  |  |
+| Add CountUnique function | In @worker/events.go , add a function to count the number of unique values given by a function among events, e.g. the number of unique users or client IPs. | Deepseek v4.1 Flash | Ollama Cloud |
