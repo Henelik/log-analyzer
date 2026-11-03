@@ -62,8 +62,7 @@
     <span class="kicker">ingest</span>
     <h2 id="upload-heading">Upload a log file</h2>
     <p>
-      CSV with an <code class="mono">epochtime</code> column. Rows stream into the database; the
-      parser and detectors run afterward.
+      ZScaler format CSV with an <code class="mono">epochtime</code> column.
     </p>
   </div>
 

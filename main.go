@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Henelik/log-analyzer/db"
+	"github.com/Henelik/log-analyzer/ollama"
 	"github.com/Henelik/log-analyzer/rest"
 	"github.com/Henelik/log-analyzer/ui"
 	"github.com/Henelik/log-analyzer/worker"
@@ -15,8 +16,9 @@ import (
 )
 
 const (
-	parseInterval    = 30 * time.Second
-	analysisInterval = 30 * time.Second
+	parseInterval       = 10 * time.Second
+	analysisInterval    = 1 * time.Second
+	descriptionInterval = 1 * time.Second
 
 	seedUsernameEnv = "SEED_USERNAME"
 	seedPasswordEnv = "SEED_PASSWORD"
@@ -48,6 +50,10 @@ func main() {
 	analyzer := worker.NewAnalysisWorker(database)
 	analyzer.Start(analysisInterval)
 	defer analyzer.Stop()
+
+	describer := worker.NewDescriptionWorker(database, ollama.New(), os.Getenv(worker.DescriptionModelEnv))
+	describer.Start(descriptionInterval)
+	defer describer.Stop()
 
 	app := fiber.New()
 

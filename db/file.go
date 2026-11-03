@@ -13,7 +13,6 @@ const (
 type File struct {
 	Model
 
-	// UploadedBy     uint       `gorm:"not null"`
 	Filename       string     `gorm:"not null"`
 	Headers        string     `gorm:"not null"`
 	Lines          int32      `gorm:"not null"`

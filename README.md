@@ -24,6 +24,50 @@ task ui:dev     # terminal 2
 Login requires a row in the `users` table with a bcrypt password hash, and the API
 needs `JWT_SECRET` set to issue tokens.
 
+## Ollama chat client
+
+`ollama` wraps the Ollama `POST /api/chat` endpoint using the Fiber HTTP client.
+`New` targets the local server and reads `OLLAMA_HOST` and `OLLAMA_API_KEY`:
+
+```go
+chat, err := ollama.New().Chat(ctx, ollama.ChatRequest{
+    Model:    "gemma4:e2b",
+    Messages: []ollama.Message{{Role: ollama.RoleUser, Content: "why is the sky blue?"}},
+})
+if err != nil {
+    return err
+}
+
+fmt.Println(chat.Message.Content)
+```
+
+Requests always set `"stream": false`, so `Chat` returns a single parsed
+`ChatResponse`.  Non-200 responses yield an `*ollama.APIError` carrying the
+status code and Ollama's `error` field.
+
+`cmd/ollama-chat` is a CLI for manual testing.  It takes the prompt as
+arguments or on stdin:
+
+```sh
+task ollama:chat -- -model gemma4:e2b "why is the sky blue?"
+echo "summarize this log" | OLLAMA_MODEL=gemma4:e2b go run ./cmd/ollama-chat -v
+```
+
+### Detection notes
+
+The description worker fills in `Detection.Notes` for detections that have no
+notes yet, asking Ollama for JSON matching a strict
+`{"detection_notes": string}` schema and storing the returned text in the notes
+field.  The prompt carries the detection's severity, confidence, priority,
+entity, observed and threshold values plus the events it points at, encoded as
+TOON; raw logs, parse status, errors, ingest IDs, line numbers, and existing
+notes are excluded.  A Markdown code fence wrapping the JSON is stripped before
+parsing.  It reads the model from `OLLAMA_MODEL` and does not start when the
+variable is unset.  If a chat request fails, the worker logs the error and skips
+the remaining detections until the next tick.  An invalid model response marks
+that detection's notes as `AI summary returned invalid` and processing
+continues.
+
 ## Data processing approach
 
 ### Data quality
@@ -128,11 +172,11 @@ I would implement cross-ingest analysis by querying events from the same time wi
 
 Detector threshold values were written without solid context, and should be revisited and adjusted based on SOC feedback and production data.
 
-### Asynchronous analysis workers
+### Independent analysis workers
 
 In the current implementation, all analysis of events is done with the entire valid portion of the ingested file in memory, and detections are only created in the database after the full analysis is completed.  I chose to implement it this way for simplicity, but it is a risky approach for a production app because any failure in any detection or the database connection would result in missed or delayed detections.
 
-Ideally, each type of detector would query only the data it needs from the database, and run in a separate process, independently of other detection logic.
+Ideally, each type of detector would query only the data it needs from the database, and run in a separate process, independently of other detection logic.  Detectors would also ideally run in an event-driven architecture, as opposed to being polling workers.
 
 ### Pagination on GET endpoints
 

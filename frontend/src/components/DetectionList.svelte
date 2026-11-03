@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getDetections, getEvents, type Detection, type EventRecord } from '../lib/api';
-  import { formatNumber, level } from '../lib/format';
+  import { formatDate, formatNumber, level } from '../lib/format';
 
   let { fileId, status }: { fileId: number; status: number } = $props();
 
@@ -14,6 +14,25 @@
   let events = $state<EventRecord[]>([]);
   let eventsLoading = $state(false);
   let eventsError = $state('');
+
+  const windowLabel = $derived.by(() => {
+    const times = events
+      .map((event) => (event.time === null ? Number.NaN : new Date(event.time).getTime()))
+      .filter((time) => !Number.isNaN(time));
+
+    if (times.length === 0) {
+      return '—';
+    }
+
+    const start = new Date(Math.min(...times));
+    const end = new Date(Math.max(...times));
+
+    if (start.getTime() === end.getTime()) {
+      return formatDate(start.toISOString());
+    }
+
+    return `${formatDate(start.toISOString())} – ${formatDate(end.toISOString())}`;
+  });
 
   $effect(() => {
     const id = fileId;
@@ -140,6 +159,10 @@
             <div class="detail">
               <dl class="metrics">
                 <div>
+                  <dt>Window</dt>
+                  <dd class="mono">{eventsLoading ? '…' : windowLabel}</dd>
+                </div>
+                <div>
                   <dt>Observed</dt>
                   <dd class="mono">{formatNumber(detection.observed)}</dd>
                 </div>
@@ -157,6 +180,10 @@
                 <p class="notes">{detection.notes}</p>
               {/if}
 
+              {#if detection.notes}
+                <p class="description">{detection.notes}</p>
+              {/if}
+
               {#if eventsLoading}
                 <p class="note">Loading related events…</p>
               {:else if eventsError}
@@ -172,6 +199,7 @@
                         <th scope="col">Time</th>
                         <th scope="col">User</th>
                         <th scope="col">Client</th>
+                        <th scope="col">Port</th>
                         <th scope="col">Method</th>
                         <th scope="col">URL</th>
                         <th scope="col">Code</th>
@@ -186,6 +214,7 @@
                           </td>
                           <td>{event.user || '—'}</td>
                           <td class="mono">{event.client_ip || '—'}</td>
+                          <td class="mono">{event.server_port ?? '—'}</td>
                           <td class="mono">{event.method || '—'}</td>
                           <td class="url">{event.url || '—'}</td>
                           <td class="mono">{event.response_code ?? '—'}</td>
@@ -417,6 +446,15 @@
     line-height: 1.55;
     color: var(--ink-soft);
     max-width: 48rem;
+  }
+
+  .description {
+    font-size: 0.875rem;
+    line-height: 1.6;
+    color: var(--ink);
+    max-width: 48rem;
+    padding-left: 0.75rem;
+    border-left: 2px solid var(--rule);
   }
 
   .table-wrap {

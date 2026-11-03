@@ -34,6 +34,8 @@ tasks:
       SEED_USERNAME: tenex
       SEED_PASSWORD: meow_mix
       JWT_SECRET: wdNdGvoT56jujKN56752TyKTbQaHPsqN
+    dotenv:
+      - .env
     cmds:
       - go run {{.MAIN_PATH}}
 
@@ -125,3 +127,10 @@ tasks:
       - scripts/generate_events.py
     generates:
       - events.csv
+
+  ollama:chat:
+    desc: 'Send a prompt to the Ollama chat API, e.g. task ollama:chat -- -model gemma4 "hello"'
+    dotenv:
+      - .env
+    cmds:
+      - go run ./cmd/ollama-chat {{.CLI_ARGS}}

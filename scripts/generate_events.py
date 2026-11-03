@@ -1,16 +1,25 @@
 #!/usr/bin/env python3
-"""Generate a log-analyzer event CSV with brute-force IOC patterns.
+"""Generate a log-analyzer event CSV with brute-force and port-scan IOC patterns.
 
 Environment:
   EVENT_COUNT    total data rows to write (default 10000); must hold the drawn
                  IOC blocks plus the invalid rows
-  IOC_COUNT      brute-force incidents to embed (default 3)
-  IOC_MIN_MULTIPLIER
-                 minimum failed logins per incident, as a multiple of the
-                 brute-force threshold, 1 or greater (default 1)
-  IOC_MAX_MULTIPLIER
-                 maximum failed logins per incident, as a multiple of the
-                 brute-force threshold (default 100)
+  BRUTE_FORCE_COUNT
+                 brute-force incidents to embed (default 3)
+  PORT_SCAN_COUNT
+                 port-scan incidents to embed (default 3)
+  BRUTE_FORCE_MIN_MULTIPLIER
+                 minimum failed logins per brute-force incident, as a multiple
+                 of the brute-force threshold, 1 or greater (default 1)
+  BRUTE_FORCE_MAX_MULTIPLIER
+                 maximum failed logins per brute-force incident, as a multiple
+                 of the brute-force threshold (default 100)
+  PORT_SCAN_MIN_PORTS
+                 minimum unique destination ports per port-scan incident, 16 or
+                 greater (default 16)
+  PORT_SCAN_MAX_PORTS
+                 maximum unique destination ports per port-scan incident
+                 (default 200)
   INVALID_RATIO  fraction of rows with invalid field data, 0..1 (default 0.05)
   DUPLICATE_RATIO
                  fraction of rows replaced by a verbatim copy of the previous
@@ -47,9 +56,20 @@ FIELD_INDEX = {name: index for index, name in enumerate(HEADERS)}
 
 BRUTE_FORCE_THRESHOLD = 10
 # The detector fires only when a failure bucket is larger than the threshold.
-MIN_IOC_ATTEMPTS = BRUTE_FORCE_THRESHOLD + 1
+MIN_BRUTE_FORCE_ATTEMPTS = BRUTE_FORCE_THRESHOLD + 1
+# Background activity stays at or below half the threshold so it never becomes
+# an IOC on its own; only the drawn brute-force blocks exceed it.
+MAX_BACKGROUND_FAILURES = BRUTE_FORCE_THRESHOLD // 2
+
+PORT_SCAN_THRESHOLD = 15
+# The detector fires only when a source uses more than the threshold ports.
+MIN_PORT_SCAN_PORTS = PORT_SCAN_THRESHOLD + 1
+
 MIN_GAP_SECONDS = 0
 MAX_GAP_SECONDS = 100
+MAX_SERVER_PORT = 65535
+# Each port-scan IOC gets a distinct client IP within 198.18.0.0/16.
+MAX_IOC_CLIENTS = 254 * 254
 
 LOGIN_FAIL = "Login Fail"
 LOGIN_SUCCESS = "Login Success"
@@ -137,9 +157,12 @@ INVALID_SIZES = ("1.5MB", "many", "1,024", "unknown")
 @dataclass
 class Config:
     event_count: int
-    ioc_count: int
-    ioc_min_attempts: int
-    ioc_max_attempts: int
+    brute_force_count: int
+    port_scan_count: int
+    brute_force_min_attempts: int
+    brute_force_max_attempts: int
+    port_scan_min_ports: int
+    port_scan_max_ports: int
     invalid_ratio: float
     duplicate_ratio: float
     output_path: Path
@@ -189,16 +212,22 @@ def env_float(name: str, default: float) -> float:
 
 
 def load_config() -> Config:
-    min_multiplier = env_int("IOC_MIN_MULTIPLIER", 1)
-    max_multiplier = env_int("IOC_MAX_MULTIPLIER", 100)
+    min_multiplier = env_int("BRUTE_FORCE_MIN_MULTIPLIER", 1)
+    max_multiplier = env_int("BRUTE_FORCE_MAX_MULTIPLIER", 100)
+
+    port_scan_min_ports = env_int("PORT_SCAN_MIN_PORTS", MIN_PORT_SCAN_PORTS)
+    port_scan_max_ports = env_int("PORT_SCAN_MAX_PORTS", 200)
 
     config = Config(
         event_count=env_int("EVENT_COUNT", 10_000),
-        ioc_count=env_int("IOC_COUNT", 3),
-        ioc_min_attempts=max(
-            MIN_IOC_ATTEMPTS, min_multiplier * BRUTE_FORCE_THRESHOLD
+        brute_force_count=env_int("BRUTE_FORCE_COUNT", 3),
+        port_scan_count=env_int("PORT_SCAN_COUNT", 3),
+        brute_force_min_attempts=max(
+            MIN_BRUTE_FORCE_ATTEMPTS, min_multiplier * BRUTE_FORCE_THRESHOLD
         ),
-        ioc_max_attempts=max_multiplier * BRUTE_FORCE_THRESHOLD,
+        brute_force_max_attempts=max_multiplier * BRUTE_FORCE_THRESHOLD,
+        port_scan_min_ports=port_scan_min_ports,
+        port_scan_max_ports=port_scan_max_ports,
         invalid_ratio=env_float("INVALID_RATIO", 0.05),
         duplicate_ratio=env_float("DUPLICATE_RATIO", 0.05),
         output_path=Path(os.environ.get("OUTPUT_PATH", "events.csv")),
@@ -208,14 +237,36 @@ def load_config() -> Config:
 
     if config.event_count < 0:
         raise SystemExit("EVENT_COUNT must be zero or greater")
-    if config.ioc_count < 0:
-        raise SystemExit("IOC_COUNT must be zero or greater")
+    if config.brute_force_count < 0:
+        raise SystemExit("BRUTE_FORCE_COUNT must be zero or greater")
+    if config.port_scan_count < 0:
+        raise SystemExit("PORT_SCAN_COUNT must be zero or greater")
     if min_multiplier < 1:
-        raise SystemExit("IOC_MIN_MULTIPLIER must be 1 or greater")
+        raise SystemExit("BRUTE_FORCE_MIN_MULTIPLIER must be 1 or greater")
     if max_multiplier < min_multiplier:
         raise SystemExit(
-            f"IOC_MAX_MULTIPLIER={max_multiplier} must be at least "
-            f"IOC_MIN_MULTIPLIER={min_multiplier}"
+            f"BRUTE_FORCE_MAX_MULTIPLIER={max_multiplier} must be at least "
+            f"BRUTE_FORCE_MIN_MULTIPLIER={min_multiplier}"
+        )
+    if port_scan_min_ports < MIN_PORT_SCAN_PORTS:
+        raise SystemExit(
+            f"PORT_SCAN_MIN_PORTS must be {MIN_PORT_SCAN_PORTS} or greater; "
+            f"the port-scan detector fires above {PORT_SCAN_THRESHOLD} unique ports"
+        )
+    if port_scan_max_ports < port_scan_min_ports:
+        raise SystemExit(
+            f"PORT_SCAN_MAX_PORTS={port_scan_max_ports} must be at least "
+            f"PORT_SCAN_MIN_PORTS={port_scan_min_ports}"
+        )
+    if port_scan_max_ports > MAX_SERVER_PORT:
+        raise SystemExit(
+            f"PORT_SCAN_MAX_PORTS={port_scan_max_ports} must be at most "
+            f"{MAX_SERVER_PORT}"
+        )
+    if config.port_scan_count > MAX_IOC_CLIENTS:
+        raise SystemExit(
+            f"PORT_SCAN_COUNT={config.port_scan_count} exceeds the "
+            f"{MAX_IOC_CLIENTS} distinct client IPs available for port-scan IOCs"
         )
     if not 0 <= config.invalid_ratio <= 1:
         raise SystemExit("INVALID_RATIO must be between 0 and 1")
@@ -268,7 +319,7 @@ def background_row(
 ) -> EventRow:
     user = rng.choice(BACKGROUND_USERS)
 
-    if failures[user] >= BRUTE_FORCE_THRESHOLD:
+    if failures[user] >= MAX_BACKGROUND_FAILURES:
         action = LOGIN_SUCCESS
     else:
         roll = rng.random()
@@ -315,7 +366,7 @@ def background_row(
     )
 
 
-def ioc_row(rng: random.Random, ioc_index: int, success: bool) -> EventRow:
+def brute_force_row(rng: random.Random, ioc_index: int, success: bool) -> EventRow:
     action = LOGIN_SUCCESS if success else LOGIN_FAIL
 
     return EventRow(
@@ -337,54 +388,132 @@ def ioc_row(rng: random.Random, ioc_index: int, success: bool) -> EventRow:
     )
 
 
+def port_scan_row(
+    rng: random.Random,
+    ioc_index: int,
+    server_port: int,
+) -> EventRow:
+    action = "blocked"
+    block, offset = divmod(ioc_index, 254)
+
+    return EventRow(
+        values=login_row(
+            epoch=0,
+            user="",
+            client_ip=f"198.18.{block}.{offset + 1}",
+            server_ip=rng.choice(SERVER_IPS),
+            server_port=server_port,
+            url=rng.choice(ENDPOINTS),
+            method=rng.choice(METHODS),
+            response_code=RESPONSE_CODES[action],
+            action=action,
+            app_name=rng.choice(APP_NAMES),
+            bytes_in=rng.randrange(0, 512),
+            bytes_out=rng.randrange(0, 512),
+        ),
+        background=False,
+    )
+
+
 def duplicate_event_count(config: Config) -> int:
     return int(config.event_count * config.duplicate_ratio + 0.5)
 
 
-def ioc_attempt_capacity(config: Config) -> int:
-    """Rows available for IOC failures after reserving everything else.
+def ioc_row_capacity(config: Config) -> int:
+    """Rows available for IOC events after reserving non-IOC rows.
 
     Invalid rows and duplicate targets are both taken from background rows, so
-    one row is reserved for each.  Each IOC also spends one row on its trailing
-    success event.
+    one row is reserved for each.
     """
     reserved = invalid_event_count(config) + duplicate_event_count(config)
 
-    return max(0, config.event_count - config.ioc_count - reserved)
+    return max(0, config.event_count - reserved)
 
 
-def draw_ioc_attempts(config: Config, rng: random.Random) -> list[int]:
-    """Pick a failed-login count for each IOC.
+def draw_port_scan_ports(config: Config, rng: random.Random) -> list[int]:
+    """Pick a unique destination-port count for each port-scan IOC.
+
+    Counts are drawn uniformly between the configured port limits.  The upper
+    bound shrinks when EVENT_COUNT cannot hold the maximum draw for every
+    incident, keeping the file size fixed.  Brute-force minimums are reserved
+    first so port-scan draws cannot crowd them out.
+    """
+    if config.port_scan_count == 0:
+        return []
+
+    brute_force_reserve = config.brute_force_count * (
+        config.brute_force_min_attempts + 1
+    )
+
+    capacity = max(
+        0,
+        (ioc_row_capacity(config) - brute_force_reserve)
+        // config.port_scan_count,
+    )
+    upper = min(config.port_scan_max_ports, capacity)
+
+    if upper < config.port_scan_min_ports:
+        raise SystemExit(
+            f"EVENT_COUNT={config.event_count} leaves room for only {capacity} "
+            f"port-scan events per IOC after reserved rows and minimum brute-force "
+            f"events, but PORT_SCAN_MIN_PORTS needs {config.port_scan_min_ports}.  "
+            "Raise EVENT_COUNT or lower INVALID_RATIO, DUPLICATE_RATIO, "
+            "PORT_SCAN_COUNT, or PORT_SCAN_MIN_PORTS."
+        )
+
+    return [
+        rng.randint(config.port_scan_min_ports, upper)
+        for _ in range(config.port_scan_count)
+    ]
+
+
+def draw_brute_force_attempts(
+    config: Config,
+    port_scan_rows: int,
+    rng: random.Random,
+) -> list[int]:
+    """Pick a failed-login count for each brute-force IOC.
 
     Counts are drawn uniformly between the configured multipliers of the
     brute-force threshold, so incidents vary in size instead of all sitting
     exactly on the threshold.  The upper bound shrinks when EVENT_COUNT cannot
-    hold the maximum draw for every IOC, keeping the file size fixed.
+    hold the maximum draw for every IOC after the port-scan rows, keeping the
+    file size fixed.
     """
-    if config.ioc_count == 0:
+    if config.brute_force_count == 0:
         return []
 
-    capacity = ioc_attempt_capacity(config) // config.ioc_count
-    upper = min(config.ioc_max_attempts, capacity)
+    available = ioc_row_capacity(config) - port_scan_rows
+    capacity = max(0, available // config.brute_force_count - 1)
+    upper = min(config.brute_force_max_attempts, capacity)
 
-    if upper < config.ioc_min_attempts:
+    if upper < config.brute_force_min_attempts:
         raise SystemExit(
-            f"EVENT_COUNT={config.event_count} leaves room for only {capacity} failures "
-            f"per IOC after reserving invalid and duplicate rows, but "
-            f"IOC_MIN_MULTIPLIER={config.ioc_min_attempts // BRUTE_FORCE_THRESHOLD} needs "
-            f"{config.ioc_min_attempts}.  Raise EVENT_COUNT or lower INVALID_RATIO, "
-            "DUPLICATE_RATIO, or IOC_MIN_MULTIPLIER."
+            f"EVENT_COUNT={config.event_count} leaves room for only {capacity} "
+            f"brute-force failures per IOC after reserved rows and port-scan events, "
+            f"but BRUTE_FORCE_MIN_MULTIPLIER="
+            f"{config.brute_force_min_attempts // BRUTE_FORCE_THRESHOLD} needs "
+            f"{config.brute_force_min_attempts}.  Raise EVENT_COUNT or lower "
+            "INVALID_RATIO, DUPLICATE_RATIO, PORT_SCAN_COUNT, or "
+            "BRUTE_FORCE_MIN_MULTIPLIER."
         )
 
     return [
-        rng.randint(config.ioc_min_attempts, upper)
-        for _ in range(config.ioc_count)
+        rng.randint(config.brute_force_min_attempts, upper)
+        for _ in range(config.brute_force_count)
     ]
 
 
-def build_rows(config: Config, rng: random.Random) -> tuple[list[EventRow], list[int]]:
-    ioc_attempts = draw_ioc_attempts(config, rng)
-    ioc_rows = sum(count + 1 for count in ioc_attempts)
+def build_rows(
+    config: Config,
+    rng: random.Random,
+) -> tuple[list[EventRow], list[int], list[int]]:
+    port_scan_ports = draw_port_scan_ports(config, rng)
+    port_scan_rows = sum(port_scan_ports)
+    brute_force_attempts = draw_brute_force_attempts(config, port_scan_rows, rng)
+    brute_force_rows = sum(count + 1 for count in brute_force_attempts)
+
+    ioc_rows = port_scan_rows + brute_force_rows
     background_count = config.event_count - ioc_rows
 
     required = invalid_event_count(config)
@@ -393,7 +522,7 @@ def build_rows(config: Config, rng: random.Random) -> tuple[list[EventRow], list
         raise SystemExit(
             f"drawn IOC sizes need {ioc_rows} events, leaving {background_count} "
             f"background rows, but INVALID_RATIO={config.invalid_ratio} needs "
-            f"{required}.  Raise EVENT_COUNT or lower IOC_MAX_MULTIPLIER."
+            f"{required}.  Raise EVENT_COUNT or lower IOC sizes."
         )
 
     failures = {user: 0 for user in BACKGROUND_USERS}
@@ -401,11 +530,22 @@ def build_rows(config: Config, rng: random.Random) -> tuple[list[EventRow], list
 
     ioc_blocks: list[list[EventRow]] = []
 
-    for ioc_index, attempts in enumerate(ioc_attempts):
+    for ioc_index, ports in enumerate(port_scan_ports):
+        ioc_blocks.append(
+            [
+                port_scan_row(rng, ioc_index, server_port)
+                for server_port in rng.sample(
+                    range(1, MAX_SERVER_PORT + 1), ports
+                )
+            ]
+        )
+
+    for ioc_index, attempts in enumerate(brute_force_attempts):
         block = [
-            ioc_row(rng, ioc_index, success=False) for _ in range(attempts)
+            brute_force_row(rng, ioc_index, success=False)
+            for _ in range(attempts)
         ]
-        block.append(ioc_row(rng, ioc_index, success=True))
+        block.append(brute_force_row(rng, ioc_index, success=True))
         ioc_blocks.append(block)
 
     blocks_at: dict[int, list[list[EventRow]]] = {
@@ -430,7 +570,7 @@ def build_rows(config: Config, rng: random.Random) -> tuple[list[EventRow], list
         row.set("epochtime", str(epoch))
         epoch += rng.randint(MIN_GAP_SECONDS, MAX_GAP_SECONDS)
 
-    return rows, ioc_attempts
+    return rows, brute_force_attempts, port_scan_ports
 
 
 def invalidate(row: EventRow, defect: str, rng: random.Random) -> None:
@@ -463,13 +603,21 @@ def apply_invalid_events(
     if invalid_count == 0:
         return 0
 
-    candidates = [row for row in rows if row.background]
+    # Rejecting a login row would change failure buckets: a lost success event
+    # merges its neighboring failure runs, which can push background activity
+    # over the brute-force threshold.  Only non-login background rows are made
+    # invalid so the failure-cap invariant survives parsing.
+    candidates = [
+        row
+        for row in rows
+        if row.background and row.action not in LOGIN_ACTIONS
+    ]
 
     if invalid_count > len(candidates):
         raise SystemExit(
             f"INVALID_RATIO={config.invalid_ratio} needs {invalid_count} invalid events, "
-            f"but only {len(candidates)} background rows can be invalidated without "
-            "corrupting IOC patterns or login-success boundaries"
+            f"but only {len(candidates)} non-login background rows can be invalidated "
+            "without corrupting IOC patterns or login-failure buckets"
         )
 
     selected = rng.sample(candidates, invalid_count)
@@ -498,9 +646,12 @@ def apply_duplicates(
     #
     # Upload deduplication keeps the first row of a run and drops the copy, so a
     # duplicate's only lasting effect is that the target row disappears.  Targets
-    # are therefore restricted to non-login background rows, leaving every
-    # login-failure bucket untouched.  Invalid rows are excluded on both sides so
-    # duplication never adds another invalid row.
+    # are therefore restricted to non-login background rows, so no login event
+    # leaves the analyzed stream.  A target also never copies a Login Fail row:
+    # doing so would add a failure to the raw file, and a run of duplicated rows
+    # could stack failures past the background cap before deduplication.  Invalid
+    # rows are excluded on both sides so duplication never adds another invalid
+    # row.
     candidates = [
         index
         for index, row in enumerate(rows)
@@ -509,6 +660,7 @@ def apply_duplicates(
         and not row.invalid
         and row.action not in LOGIN_ACTIONS
         and not rows[index - 1].invalid
+        and rows[index - 1].action != LOGIN_FAIL
     ]
 
     if duplicate_count > len(candidates):
@@ -539,22 +691,24 @@ def main() -> None:
     config = load_config()
     rng = random.Random(config.seed)
 
-    rows, ioc_attempts = build_rows(config, rng)
+    rows, brute_force_attempts, port_scan_ports = build_rows(config, rng)
     invalid_count = apply_invalid_events(config, rows, rng)
     duplicate_count = apply_duplicates(config, rows, rng)
 
     write_csv(config.output_path, rows)
 
-    valid_count = len(rows) - invalid_count
     ratio = invalid_count / len(rows) if rows else 0.0
 
     print(f"wrote {len(rows)} events to {config.output_path}")
-    print(f"  valid events: {valid_count}")
+    print(f"  total events: {len(rows)}")
     print(f"  invalid events: {invalid_count} ({ratio:.2%})")
     print(f"  duplicate events: {duplicate_count}")
-    print(f"  brute-force IOCs: {config.ioc_count}")
-    print(f"  IOC failure counts: {ioc_attempts}")
-    print(f"  IOC events: {sum(count + 1 for count in ioc_attempts)}")
+    print(f"  brute-force IOCs: {config.brute_force_count}")
+    print(f"  brute-force failure counts: {brute_force_attempts}")
+    print(f"  brute-force events: {sum(count + 1 for count in brute_force_attempts)}")
+    print(f"  port-scan IOCs: {config.port_scan_count}")
+    print(f"  port-scan port counts: {port_scan_ports}")
+    print(f"  port-scan events: {sum(port_scan_ports)}")
     print(f"  seed: {config.seed}")
 
 
