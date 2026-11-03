@@ -76,7 +76,7 @@ Uploaded files are rejected with specific error messages if the data is invalid:
 * Mismatched header/row length
 * Missing epochtime column
 
-Once the file is accepted, the events are parsed by a worker.  Any errors encountered at this stage are persisted to the database for review by an analyst.
+Once the file is accepted, the events are parsed by a worker.  Any errors encountered at this stage are persisted to the database and displayed in the UI for review by an analyst.
 
 ### Normalization
 
@@ -90,7 +90,7 @@ Epoch time is the only fully unambiguous way to handle event timing.  I consider
 
 ### Streaming file upload
 
-The uploaded file is separated line-by-line and streamed to the database in batches of 1000 events at a time to reduce memory usage and avoid hitting SQL query size limits.  This is done in a transaction so if the file is found to be malformed at the last line, everything is rolled back.
+The uploaded file is separated line-by-line and streamed to the database in batches of 1000 events at a time to reduce memory usage and avoid hitting SQL query size limits.  The entire file is done in a single database transaction so any failure will not result in a partial upload.
 
 ### Embedded UI
 
@@ -181,3 +181,7 @@ Ideally, each type of detector would query only the data it needs from the datab
 ### Pagination on GET endpoints
 
 Large files will potentially generate large numbers of errors and detections.  Pagination would help users navigate those objects without a slow user experience.
+
+### More sophisticated severity and confidence calculations
+
+The severity and confidence calculations in detectors.go are based on limited experience and gut instinct.  More sophisticated confidence calculations would be based on production data and actual positive rates of IOCs, and may take into account client location, last known user location, and work schedule vs access time.  More sophisticated severity calculations may take into account the organizational privelege level of the user account, the degree of network saturation from an attack, or specific types of data in egress IOCs.

@@ -11,10 +11,13 @@ const (
 	bruteForceThresh = 10
 	bruteForceRate   = 1.0 / 60 // the number of brute force events per second to be considered a detection; one per minute
 
-	portScanThresh = 15
+	portScanThresh    = 15
+	exfiltraionThresh = 10 << 6 // egress events over 10 MB are flaggeed
 
 	ActionLoginFail    = "Login Fail"
 	ActionLoginSuccess = "Login Success"
+
+	ActionEgress = "Egress"
 )
 
 type Detector func([]db.Event) []db.Detection
@@ -26,7 +29,7 @@ var Detectors = []Detector{
 
 var LoginEvents = []string{ActionLoginFail, ActionLoginSuccess}
 
-// detect IOCs over a time-sorted events slice.  RawLog is not needed.
+// detect brute force IOCs over a time-sorted events slice.  RawLog is not needed.
 // Assumes all of the events in the slice were accepted (properly formatted) and are part of the same ingest, with no duplicate line numbers
 func BruteForceDetector(events []db.Event) []db.Detection {
 	detections := []db.Detection{}
@@ -63,6 +66,8 @@ func BruteForceDetector(events []db.Event) []db.Detection {
 	return detections
 }
 
+// detect port scan IOCs over a time-sorted events slice.  RawLog is not needed.
+// Assumes all of the events in the slice were accepted (properly formatted) and are part of the same ingest, with no duplicate line numbers
 func PortScanDetector(events []db.Event) []db.Detection {
 	detections := []db.Detection{}
 	ingestID := events[0].IngestID
@@ -92,4 +97,40 @@ func PortScanDetector(events []db.Event) []db.Detection {
 	}
 
 	return detections
+}
+
+// detect singular data exfiltraion IOCs over a time-sorted events slice.  RawLog is not needed.
+// Assumes all of the events in the slice were accepted (properly formatted) and are part of the same ingest, with no duplicate line numbers
+func ExfilDetector(events []db.Event) []db.Detection {
+	detections := []db.Detection{}
+	ingestID := events[0].IngestID
+
+	egressEvents := FilterEvents(events, func(e db.Event) bool {
+		return e.BytesOut != nil && *e.BytesOut >= exfiltraionThresh && e.Action == ActionEgress
+	})
+
+	for _, event := range egressEvents {
+		bytesOut := *event.BytesOut
+
+		severity := min(float64(bytesOut)/exfiltraionThresh, 100)
+		confidence := min(30+20*math.Log10(float64(bytesOut)/100000), 100)
+		priority := severity * (0.5 + 0.5*confidence/100.0)
+
+		entity := event.User
+		if entity == "" {
+			entity = event.ClientIP
+		}
+
+		detections = append(detections, db.Detection{
+			IngestID:    ingestID,
+			Description: "Data Exfiltration",
+			Severity:    int16(severity),
+			Confidence:  int16(confidence),
+			Priority:    int16(priority),
+			Entity:      entity,
+			Observed:    float32(bytesOut),
+			Threshold:   float32(portScanThresh),
+			Events:      []int32{event.LineNumber},
+		})
+	}
 }
