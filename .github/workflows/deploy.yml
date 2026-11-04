@@ -1,0 +1,82 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          install_govulncheck() {
+            go install golang.org/x/vuln/cmd/govulncheck@latest
+          }
+          install_govulncheck &
+          wait
+          govulncheck -version
+
+      - name: Build UI
+        run: |
+          set -euo pipefail
+          npm ci --prefix frontend
+          npm --prefix frontend run build
+
+      - name: Run Go checks
+        run: |
+          set -euo pipefail
+          go vet ./... &
+          govulncheck ./... &
+          go test ./... &
+          wait
+
+      - name: Build binary
+        run: go build -o log-analyzer main.go
+
+      - name: Setup SSH key
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add host to known hosts
+        run: ssh-keyscan -H ${{ secrets.WEBSERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Stop service
+        run: |
+          ssh ${{ secrets.WEBSERVER_USER }}@${{ secrets.WEBSERVER_HOST }} << 'EOF'
+          sudo systemctl stop log-analyzer || true
+          EOF
+
+      - name: Upload binary via SFTP
+        run: |
+          sftp -o StrictHostKeyChecking=no ${{ secrets.WEBSERVER_USER }}@${{ secrets.WEBSERVER_HOST }} << EOF
+          put log-analyzer /opt/log-analyzer/log-analyzer
+          EOF
+
+      - name: Set permissions and start service
+        run: |
+          ssh ${{ secrets.WEBSERVER_USER }}@${{ secrets.WEBSERVER_HOST }} << 'EOF'
+          chmod +x /opt/log-analyzer/log-analyzer
+          sudo systemctl daemon-reload
+          sudo systemctl start log-analyzer
+          EOF
