@@ -83,7 +83,7 @@ func PortScanDetector(events []db.Event) []db.Detection {
 
 	for source, sourceEvents := range SplitBy(eventsWithPorts, db.Event.ClientIPKey) {
 		if CountUnique(sourceEvents, db.Event.PortKey) >= portScanThresh {
-			severity := min(float64(len(sourceEvents))/100.0, 100)
+			severity := min(float64(len(sourceEvents))/portScanThresh, 100)
 			confidence := min(30+20*math.Log10(float64(len(sourceEvents))), 100)
 			priority := severity * (0.5 + 0.5*confidence/100.0)
 
@@ -118,7 +118,7 @@ func ExfilDetector(events []db.Event) []db.Detection {
 		bytesIn := *event.BytesIn
 
 		severity := min(float64(bytesIn)/exfiltraionThresh, 100)
-		confidence := min(30+20*math.Log10(float64(bytesIn)/100000), 100)
+		confidence := min(30+20*math.Log10(float64(bytesIn)/100000.0), 100)
 		priority := severity * (0.5 + 0.5*confidence/100.0)
 
 		entity := event.User

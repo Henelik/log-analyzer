@@ -1,6 +1,42 @@
 # log-analyzer
 
-## Web UI
+To generate an example log file and run the app, just run:
+
+```sh
+task logs
+task run
+```
+
+The UI is hosted from the backend server, so you can visit `http://127.0.0.1:3000` to view the UI.
+
+Go and Node are required to run locally.  Python is required to generate the log file.  Note that the AI feature will not work locally without an Ollama API key.
+
+## App structure
+
+### Backend
+
+The backend is build with Go, using Fiber for HTTP routing and GORM for database interactions.  File parsing, analysis, and AI description are handled asynchronously.
+
+Environment variables:
+
+* SEED_USERNAME - username for the seed user in the database
+* SEED_PASSWORD - password for the seed user in the database
+* DB_DRIVER - `sqlite` or `postgres`
+* DB_CONN_STR
+* OLLAMA_HOST
+* OLLAMA_API_KEY
+* JWT_SECRET - secret used to sign JWT cookies for logged in users
+
+Commands:
+
+```sh
+task build # build the app
+task run   # run the app (doesn't require running build first)
+task test  # run the tests
+task lint  # run the linter
+```
+
+### Web UI
 
 The Svelte 5 + TypeScript console is embedded in the Go binary and served from `/`.
 It covers login, log file upload, and per-file detections and rejected rows.
@@ -24,49 +60,23 @@ task ui:dev     # terminal 2
 Login requires a row in the `users` table with a bcrypt password hash, and the API
 needs `JWT_SECRET` set to issue tokens.
 
-## Ollama chat client
+### Log generator
 
-`ollama` wraps the Ollama `POST /api/chat` endpoint using the Fiber HTTP client.
-`New` targets the local server and reads `OLLAMA_HOST` and `OLLAMA_API_KEY`:
+I also created a log generator script.
 
-```go
-chat, err := ollama.New().Chat(ctx, ollama.ChatRequest{
-    Model:    "gemma4:e2b",
-    Messages: []ollama.Message{{Role: ollama.RoleUser, Content: "why is the sky blue?"}},
-})
-if err != nil {
-    return err
-}
-
-fmt.Println(chat.Message.Content)
-```
-
-Requests always set `"stream": false`, so `Chat` returns a single parsed
-`ChatResponse`.  Non-200 responses yield an `*ollama.APIError` carrying the
-status code and Ollama's `error` field.
-
-`cmd/ollama-chat` is a CLI for manual testing.  It takes the prompt as
-arguments or on stdin:
+You can run it with this command:
 
 ```sh
-task ollama:chat -- -model gemma4:e2b "why is the sky blue?"
-echo "summarize this log" | OLLAMA_MODEL=gemma4:e2b go run ./cmd/ollama-chat -v
+task logs
 ```
 
-### Detection notes
-
-The description worker fills in `Detection.Notes` for detections that have no
-notes yet, asking Ollama for JSON matching a strict
-`{"detection_notes": string}` schema and storing the returned text in the notes
-field.  The prompt carries the detection's severity, confidence, priority,
-entity, observed and threshold values plus the events it points at, encoded as
-TOON; raw logs, parse status, errors, ingest IDs, line numbers, and existing
-notes are excluded.  A Markdown code fence wrapping the JSON is stripped before
-parsing.  It reads the model from `OLLAMA_MODEL` and does not start when the
-variable is unset.  If a chat request fails, the worker logs the error and skips
-the remaining detections until the next tick.  An invalid model response marks
-that detection's notes as `AI summary returned invalid` and processing
-continues.
+The default settings create a file with:
+* 10,000 total events
+* 500 duplicate events
+* 500 invalid events
+* 3 brute force IOCs
+* 3 port scan IOCs
+* 3 data exfiltration IOCs
 
 ## Data processing approach
 
@@ -81,6 +91,32 @@ Once the file is accepted, the events are parsed by a worker.  Any errors encoun
 ### Normalization
 
 "" (empty field), "NA", "N/A", and "None" are normalized to NULL in the database.  NULL values are JSON null (for ints) or an empty string (for strings) in API resonses.
+
+## AI approach
+
+AI is used in this app solely to generate notes about detected IOCs to assist analysts in triage.  I picked this approach because I didn't want to introduce the risks of LLM temperature to the process of event detection, which should be quantitative and repeatable.
+
+### Prompting
+
+The AI is given the instructions in [description_system_prompt.md](/worker/description_system_prompt.md), along with the following IOC information:
+* All relevant events in TOON format
+* IOC title (event type)
+* Severity
+* Confidence
+* Priority
+* Entity (username, IP address, etc.)
+* Observed value (number of logs, number of egress bytes, etc. depending on IOC)
+* Configured IOC threshold
+
+To avoid user data being interpreted as instructions for the model, there is a specific warning in the system prompt.  Additionally, the model is instructed to only return JSON in a specific format, any deviation from which will result in a rejected response.
+
+### Model provider
+
+For this project, I decided to use Ollama cloud as the model provider, because they are a US-based host that provides cost-effective open models with zero data retention.
+
+### Model
+
+I chose Gemma4 as the model for this project because it is cost-effective and gives acceptable results.
 
 ## Design considerations
 
