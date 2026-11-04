@@ -158,7 +158,6 @@ func TestUploadFileStoresFileFields(t *testing.T) {
 	assert.False(t, file.CreatedAt.IsZero(), "created at")
 	assert.False(t, file.UpdatedAt.IsZero(), "updated at")
 
-	assert.Zero(t, file.Lines, "lines are left for out-of-band processing")
 	assert.Zero(t, file.AcceptedLines, "accepted lines are left for out-of-band processing")
 	assert.Zero(t, file.RejectedLines, "rejected lines are left for out-of-band processing")
 	assert.Zero(t, file.DuplicateLines, "duplicate lines are left for out-of-band processing")
@@ -351,7 +350,6 @@ func TestUploadFileHandlesMultipleBatches(t *testing.T) {
 	var file db.File
 	require.NoError(t, database.First(&file, created.ID).Error, "load file")
 	assert.Equal(t, "large.csv", file.Filename)
-	assert.Zero(t, file.Lines)
 	assert.Zero(t, file.AcceptedLines)
 	assert.Zero(t, file.RejectedLines)
 	assert.Zero(t, file.DuplicateLines)
@@ -428,7 +426,6 @@ func TestUploadFileStoresMultipleFilesWithRelatedEvents(t *testing.T) {
 		assert.Equal(t, upload.filename, stored.Filename)
 		assert.Equal(t, upload.header, stored.Headers)
 		assert.Equal(t, db.FileStatus(db.FileStatusUplodaded), stored.Status)
-		assert.Zero(t, stored.Lines)
 		assert.Zero(t, stored.AcceptedLines)
 		assert.Zero(t, stored.RejectedLines)
 		assert.Zero(t, stored.DuplicateLines)

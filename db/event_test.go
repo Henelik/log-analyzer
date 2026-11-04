@@ -13,7 +13,7 @@ func TestEventParseAllColumns(t *testing.T) {
 		RawLog: "1700000000,alice,10.0.0.1,10.0.0.2,443,/login,POST,201,allow,portal,128,512",
 	}
 
-	headers := []string{"epochtime", "login", "cip", "sip", "srv_dport", "url", "reqmethod", "respcode", "action", "appname", "reqsize", "respdatasize"}
+	headers := []string{"epochtime", "login", "cip", "sip", "srv_dport", "url", "reqmethod", "respcode", "action", "appname", "reqdatasize", "respdatasize"}
 
 	event.Parse(headers)
 
@@ -173,9 +173,9 @@ func TestEventParseRecordsErrors(t *testing.T) {
 		},
 		{
 			name:    "invalid request size",
-			header:  []string{"epochtime", "reqsize"},
+			header:  []string{"epochtime", "reqdatasize"},
 			rawLog:  "1700000000,abc",
-			wantErr: "invalid reqsize",
+			wantErr: "invalid reqdatasize",
 		},
 		{
 			name:    "invalid response data size",

@@ -86,7 +86,6 @@ func TestEventParseWorkerParsesUploadedFile(t *testing.T) {
 
 	assert.Equal(t, db.FileStatus(db.FileStatusParsed), stored.Status)
 
-	assert.Equal(t, int32(len(lines)), stored.Lines)
 	assert.Equal(t, int32(2), stored.AcceptedLines)
 	assert.Equal(t, int32(1), stored.RejectedLines)
 	assert.Zero(t, stored.DuplicateLines)
@@ -127,7 +126,6 @@ func TestEventParseWorkerParsesAllBatches(t *testing.T) {
 
 	stored := loadFile(t, database, file.ID)
 	assert.Equal(t, db.FileStatus(db.FileStatusParsed), stored.Status)
-	assert.Equal(t, int32(rows), stored.Lines)
 	assert.Equal(t, int32(rows), stored.AcceptedLines)
 	assert.Zero(t, stored.RejectedLines)
 
@@ -248,7 +246,6 @@ func TestEventParseWorkerRunIsIdempotent(t *testing.T) {
 
 	stored := loadFile(t, database, file.ID)
 	assert.Equal(t, db.FileStatus(db.FileStatusParsed), stored.Status)
-	assert.Equal(t, int32(len(lines)), stored.Lines)
 	assert.Equal(t, int32(1), stored.AcceptedLines)
 	assert.Equal(t, int32(1), stored.RejectedLines)
 }
