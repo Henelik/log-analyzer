@@ -91,10 +91,6 @@
         {submitting ? 'Verifying' : 'Enter console'}
       </button>
     </form>
-
-    <p class="footnote">
-      Sessions are held in the browser after the API issues a signed token.
-    </p>
   </section>
 </main>
 
