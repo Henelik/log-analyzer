@@ -55,8 +55,6 @@
         <dd>IOC analysis per file</dd>
       </div>
     </dl>
-
-    <span class="index" aria-hidden="true">01 / 03</span>
   </section>
 
   <section class="panel" aria-labelledby="login-heading">
